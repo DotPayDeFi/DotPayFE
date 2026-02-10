@@ -1,0 +1,27 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 512 512" fill="none">
+  <rect width="512" height="512" rx="96" fill="#0A0E0E"/>
+
+  <defs>
+    <linearGradient id="dotpayGradient" x1="110" y1="110" x2="402" y2="402" gradientUnits="userSpaceOnUse">
+      <stop offset="0" stop-color="#46C8C5"/>
+      <stop offset="0.55" stop-color="#3F86E0"/>
+      <stop offset="1" stop-color="#7B5CFF"/>
+    </linearGradient>
+  </defs>
+
+  <circle cx="256" cy="256" r="148" stroke="url(#dotpayGradient)" stroke-width="36" stroke-linecap="round" opacity="0.95"/>
+
+  <g fill="url(#dotpayGradient)" stroke="rgba(255,255,255,0.35)" stroke-width="4">
+    <circle cx="256" cy="104" r="20"/>
+    <circle cx="353" cy="129" r="20"/>
+    <circle cx="410" cy="212" r="20"/>
+    <circle cx="400" cy="315" r="20"/>
+    <circle cx="329" cy="399" r="20"/>
+    <circle cx="233" cy="421" r="20"/>
+    <circle cx="149" cy="370" r="20"/>
+    <circle cx="112" cy="267" r="20"/>
+    <circle cx="137" cy="170" r="20"/>
+    <circle cx="202" cy="120" r="20"/>
+  </g>
+</svg>
+
