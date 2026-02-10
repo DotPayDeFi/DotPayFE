@@ -1,10 +1,8 @@
 "use client";
 
 import React, { useEffect, useState } from "react";
-import Image from "next/image";
 import Link from "next/link";
 import { useRouter } from "next/navigation";
-import { NexusLogo } from "@/constants/svg";
 import { onboardingSource } from "@/helpers/onboardingSource";
 import {
   type CarouselApi,
@@ -15,6 +13,7 @@ import {
 import { ThirdwebConnectButton } from "@/components/auth/ThirdwebConnectButton";
 import { useAuthSession } from "@/context/AuthSessionContext";
 import AuthHandoff from "@/components/auth/AuthHandoff";
+import DotPayLogo from "@/components/brand/DotPayLogo";
 
 const Onboarding = () => {
   const { isLoggedIn, hasChecked } = useAuthSession();
@@ -58,7 +57,7 @@ const Onboarding = () => {
   return (
     <main className="onboarding-bg">
       <div className="flex justify-around w-full">
-        <Image src={NexusLogo} alt="DotPay" className="py-10 md:py-16" priority />
+        <DotPayLogo className="py-10 md:py-16" size={72} />
       </div>
       <div className="xsm:flex justify-center">
         <Carousel className="xsm:w-[400px]" setApi={setCarouselApi}>

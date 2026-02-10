@@ -1,9 +1,8 @@
 "use client";
 
-import Image from "next/image";
 import { useRouter } from "next/navigation";
 import React, { useEffect } from "react";
-import { NexusLogo } from "../../constants/svg";
+import DotPayLogo from "@/components/brand/DotPayLogo";
 
 const SPLASH_DURATION_MS = 1000;
 
@@ -19,7 +18,7 @@ const SplashScreen = () => {
 
   return (
     <section className="app-background min-h-screen flex items-center justify-center">
-      <Image src={NexusLogo} alt="DotPay" priority />
+      <DotPayLogo size={72} />
     </section>
   );
 };

@@ -25,7 +25,7 @@ import { getBalance } from "thirdweb/extensions/erc20";
 import { useConnectModal, useIsAutoConnecting } from "thirdweb/react";
 import { useReadContract } from "thirdweb/react";
 import AuthGuard from "@/components/auth/AuthGuard";
-import { NexusLogo } from "@/constants/svg";
+import DotPayLogo from "@/components/brand/DotPayLogo";
 import { useAuthSession } from "@/context/AuthSessionContext";
 import {
   getUserFromBackend,
@@ -486,7 +486,7 @@ export default function HomePage() {
         <section className="mx-auto w-full max-w-5xl space-y-4">
           <header className="flex items-center justify-between gap-3">
             <div className="flex min-w-0 items-center gap-3">
-              <Image src={NexusLogo} alt="DotPay" className="h-auto w-10" priority />
+              <DotPayLogo size={28} className="shrink-0" />
               <div className="min-w-0">
                 <p className="text-[11px] uppercase tracking-[0.24em] text-cyan-200/80">
                   DotPay

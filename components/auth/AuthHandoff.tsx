@@ -1,8 +1,7 @@
 "use client";
 
-import Image from "next/image";
-import { NexusLogo } from "@/constants/svg";
 import { cn } from "@/lib/utils";
+import DotPayLogo from "@/components/brand/DotPayLogo";
 
 type AuthHandoffProps = {
   title?: string;
@@ -29,7 +28,7 @@ export default function AuthHandoff({
       )}
     >
       <div className="flex w-full max-w-sm flex-col items-center gap-6">
-        <Image src={NexusLogo} alt="DotPay" className="h-auto w-36" priority />
+        <DotPayLogo size={44} />
 
         <div className="flex flex-col items-center">
           <div className="h-10 w-10 animate-spin rounded-full border-2 border-cyan-200/70 border-t-transparent" />
@@ -40,4 +39,3 @@ export default function AuthHandoff({
     </main>
   );
 }
-
