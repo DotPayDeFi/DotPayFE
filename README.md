@@ -34,6 +34,7 @@ If the backend URL is not configured, DotPay ID / username / notifications featu
    - `DOTPAY_INTERNAL_API_KEY`
    - `ARBISCAN_API_KEY` (required for on-chain activity + notifications verification)
    - `NEXT_PUBLIC_DOTPAY_NETWORK` (`mainnet` for production, `sepolia` for testing)
+   - `NEXT_PUBLIC_DOTPAY_SPONSORED_GAS` (`true` to enable ERC-4337 sponsored gas, `false` to disable)
 
 Vercel will run `npm run build` and `npm start` automatically.
 

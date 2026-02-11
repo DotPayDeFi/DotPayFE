@@ -3,10 +3,12 @@
 import { AutoConnect } from "thirdweb/react";
 import { createWallet, inAppWallet } from "thirdweb/wallets";
 import { getDotPayNetwork, getDotPayUsdcChain } from "@/lib/dotpayNetwork";
+import { getDotPayAccountAbstraction } from "@/lib/thirdwebAccountAbstraction";
 import { thirdwebClient } from "@/lib/thirdwebClient";
 
 const dotpayNetwork = getDotPayNetwork();
 const chain = getDotPayUsdcChain(dotpayNetwork);
+const accountAbstraction = getDotPayAccountAbstraction(chain);
 
 // Keep these stable (module-level) so AutoConnect doesn't re-run on every render.
 const wallets = [
@@ -39,6 +41,7 @@ export function ThirdwebAutoConnect() {
       client={thirdwebClient}
       wallets={wallets}
       chain={chain}
+      accountAbstraction={accountAbstraction}
       timeout={4000}
       appMetadata={appMetadata}
     />

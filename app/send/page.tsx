@@ -27,6 +27,7 @@ import {
 import AuthGuard from "@/components/auth/AuthGuard";
 import { isBackendApiConfigured, lookupUserFromBackend } from "@/lib/backendUser";
 import { getDotPayNetwork, getDotPayUsdcChain } from "@/lib/dotpayNetwork";
+import { getDotPayAccountAbstraction } from "@/lib/thirdwebAccountAbstraction";
 import { thirdwebClient } from "@/lib/thirdwebClient";
 import { useKesRate } from "@/hooks/useKesRate";
 
@@ -85,6 +86,7 @@ export default function SendPage() {
   const dotpayNetwork = getDotPayNetwork();
   const enableTestnets = dotpayNetwork === "sepolia";
   const chain = getDotPayUsdcChain(dotpayNetwork);
+  const accountAbstraction = useMemo(() => getDotPayAccountAbstraction(chain), [chain]);
   const usdcAddress =
     dotpayNetwork === "sepolia" ? USDC_ARBITRUM_SEPOLIA_ADDRESS : USDC_ARBITRUM_ONE_ADDRESS;
 
@@ -183,6 +185,7 @@ export default function SendPage() {
         client: thirdwebClient,
         chain,
         chains: [chain],
+        accountAbstraction,
         // Let modal decide wallets (uses defaults + installed), keeping UI consistent with ConnectButton.
         wallets: undefined,
         recommendedWallets: undefined,
@@ -203,7 +206,7 @@ export default function SendPage() {
       // User closed modal or connect failed; keep message short to avoid noise.
       toast.error("Connection not completed");
     }
-  }, [connect]);
+  }, [accountAbstraction, chain, connect]);
 
   const lookupSeqRef = useRef(0);
   const lookupTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);

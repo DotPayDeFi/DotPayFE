@@ -34,6 +34,7 @@ import {
   type BackendUserRecord,
 } from "@/lib/backendUser";
 import { thirdwebClient } from "@/lib/thirdwebClient";
+import { getDotPayAccountAbstraction } from "@/lib/thirdwebAccountAbstraction";
 import { cn } from "@/lib/utils";
 import {
   Sheet,
@@ -386,6 +387,10 @@ export default function HomePage() {
   const isAutoConnecting = useIsAutoConnecting();
   const defaultChain = useMemo(() => getDotPayUsdcChain(dotpayNetwork), [dotpayNetwork]);
   const supportedChains = useMemo(() => getDotPaySupportedChains(dotpayNetwork), [dotpayNetwork]);
+  const accountAbstraction = useMemo(
+    () => getDotPayAccountAbstraction(defaultChain),
+    [defaultChain]
+  );
 
   // Avoid UI flicker on refresh: auto-connect can complete quickly, so we only show the
   // reconnect CTA if the wallet is still disconnected after a short grace period.
@@ -411,6 +416,7 @@ export default function HomePage() {
         client: thirdwebClient,
         chain: defaultChain,
         chains: supportedChains,
+        accountAbstraction,
         wallets: undefined,
         recommendedWallets: undefined,
         showAllWallets: false,
@@ -429,7 +435,7 @@ export default function HomePage() {
     } catch {
       toast.error("Connection not completed");
     }
-  }, [connect, defaultChain, supportedChains]);
+  }, [accountAbstraction, connect, defaultChain, supportedChains]);
 
   const handleRefresh = useCallback(() => {
     refetchUsdcBalance();

@@ -6,6 +6,7 @@ import { ConnectButton } from "thirdweb/react";
 import type { LoginPayload, VerifyLoginPayloadParams } from "thirdweb/auth";
 import { createWallet, inAppWallet } from "thirdweb/wallets";
 import { getDotPayNetwork, getDotPaySupportedChains, getDotPayUsdcChain } from "@/lib/dotpayNetwork";
+import { getDotPayAccountAbstraction } from "@/lib/thirdwebAccountAbstraction";
 import { thirdwebClient } from "@/lib/thirdwebClient";
 import { generatePayload, login } from "@/app/(auth)/actions/login";
 import { useAuthSession } from "@/context/AuthSessionContext";
@@ -23,6 +24,10 @@ export const ThirdwebConnectButton: React.FC<ThirdwebConnectButtonProps> = ({ mo
   // Default: dev -> Sepolia, prod -> Arbitrum One. Override with NEXT_PUBLIC_DOTPAY_NETWORK.
   const defaultChain = getDotPayUsdcChain(dotpayNetwork);
   const supportedChains = getDotPaySupportedChains(dotpayNetwork);
+  const accountAbstraction = useMemo(
+    () => getDotPayAccountAbstraction(defaultChain),
+    [defaultChain]
+  );
 
   const wallets = useMemo(
     () => [
@@ -94,6 +99,7 @@ export const ThirdwebConnectButton: React.FC<ThirdwebConnectButtonProps> = ({ mo
       client={thirdwebClient}
       chain={defaultChain}
       chains={supportedChains}
+      accountAbstraction={accountAbstraction}
       wallets={wallets}
       recommendedWallets={wallets}
       showAllWallets={false}
