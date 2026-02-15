@@ -1,7 +1,7 @@
 "use client";
 
 import { useCallback, useEffect, useMemo, useState } from "react";
-import { useRouter } from "next/navigation";
+import { useRouter, useSearchParams } from "next/navigation";
 import toast from "react-hot-toast";
 import QRCode from "qrcode.react";
 import {
@@ -15,6 +15,7 @@ import {
   Sparkles,
 } from "lucide-react";
 import AuthGuard from "@/components/auth/AuthGuard";
+import { MpesaTopupPanel } from "@/components/mpesa/MpesaTopupPanel";
 import { useAuthSession } from "@/context/AuthSessionContext";
 import {
   getUserFromBackend,
@@ -31,6 +32,9 @@ const normalizeAmountInput = (value: string) => value.trim().replace(/,/g, "");
 
 export default function ReceivePage() {
   const router = useRouter();
+  const searchParams = useSearchParams();
+  const modeParam = (searchParams?.get("mode") || "").trim().toLowerCase();
+  const showTopup = modeParam === "topup";
   const { address, sessionUser } = useAuthSession();
   const backendConfigured = isBackendApiConfigured();
 
@@ -253,6 +257,8 @@ export default function ReceivePage() {
               <h1 className="text-xl font-semibold">Get paid</h1>
             </div>
           </header>
+
+          {showTopup && <MpesaTopupPanel />}
 
           {showIdentityCta && (
             <article className="rounded-2xl border border-cyan-300/25 bg-gradient-to-r from-cyan-500/15 to-sky-500/10 p-4">

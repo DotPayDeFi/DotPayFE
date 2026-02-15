@@ -19,6 +19,7 @@ The backend is a separate repo (not inside this project). Set:
 
 - `NEXT_PUBLIC_DOTPAY_API_URL` to your backend URL (local or production)
 - `DOTPAY_INTERNAL_API_KEY` must match the backend’s `DOTPAY_INTERNAL_API_KEY`
+- `DOTPAY_BACKEND_JWT_SECRET` must match backend `DOTPAY_BACKEND_JWT_SECRET` (used for authenticated `/api/mpesa/*` proxy calls)
 
 If the backend URL is not configured, DotPay ID / username / notifications features degrade gracefully.
 
@@ -32,6 +33,7 @@ If the backend URL is not configured, DotPay ID / username / notifications featu
    - `THIRDWEB_SECRET_KEY` (recommended)
    - `NEXT_PUBLIC_DOTPAY_API_URL`
    - `DOTPAY_INTERNAL_API_KEY`
+   - `DOTPAY_BACKEND_JWT_SECRET`
    - `ARBISCAN_API_KEY` (required for on-chain activity + notifications verification)
    - `NEXT_PUBLIC_DOTPAY_NETWORK` (`mainnet` for production, `sepolia` for testing)
    - `NEXT_PUBLIC_DOTPAY_SPONSORED_GAS` (`true` to enable ERC-4337 sponsored gas, `false` to disable)

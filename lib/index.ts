@@ -1,6 +1,5 @@
 // Core wallet operations
 export * from './wallet';
-export * from './mpesa';
 export * from './platform-wallet';
 export * from './liquidity';
 export * from './transactions';

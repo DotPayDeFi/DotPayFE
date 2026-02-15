@@ -25,6 +25,7 @@ import {
   useSendTransaction,
 } from "thirdweb/react";
 import AuthGuard from "@/components/auth/AuthGuard";
+import { MpesaSendModePage } from "@/components/mpesa/MpesaSendModePage";
 import { isBackendApiConfigured, lookupUserFromBackend } from "@/lib/backendUser";
 import { getDotPayNetwork, getDotPayUsdcChain } from "@/lib/dotpayNetwork";
 import { getDotPayAccountAbstraction } from "@/lib/thirdwebAccountAbstraction";
@@ -77,6 +78,12 @@ const placeholderForKind = (kind: RecipientKind) => {
 export default function SendPage() {
   const router = useRouter();
   const searchParams = useSearchParams();
+  const modeParam = (searchParams?.get("mode") || "").trim().toLowerCase();
+  const mpesaMode =
+    modeParam === "cashout" || modeParam === "paybill" || modeParam === "buygoods"
+      ? modeParam
+      : null;
+
   const queryClient = useQueryClient();
   const account = useActiveAccount();
   const isAutoConnecting = useIsAutoConnecting();
@@ -621,6 +628,14 @@ export default function SendPage() {
     setTxHash(null);
     setTxStatus("idle");
   }, []);
+
+  if (mpesaMode) {
+    return (
+      <AuthGuard redirectTo="/onboarding">
+        <MpesaSendModePage mode={mpesaMode} onBack={() => router.push("/home")} />
+      </AuthGuard>
+    );
+  }
 
   return (
     <AuthGuard redirectTo="/onboarding">

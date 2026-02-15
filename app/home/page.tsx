@@ -474,10 +474,10 @@ export default function HomePage() {
       return;
     }
     if (action === "pay") {
-      toast("Bill pay flow will be reconnected next.");
+      router.push("/send?mode=paybill");
       return;
     }
-    toast("Top up flow will be reconnected next.");
+    router.push("/receive?mode=topup");
   };
 
   const notificationsQuery = useNotifications({ limit: 25, enabled: backendConfigured });
