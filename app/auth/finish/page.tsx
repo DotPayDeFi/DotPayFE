@@ -74,6 +74,11 @@ export default function AuthFinishPage() {
 
         if (cancelled) return;
 
+        if (!profile?.pinSet) {
+          router.replace("/onboarding/pin");
+          return;
+        }
+
         if (profile?.username) {
           router.replace("/home");
           return;
@@ -82,7 +87,7 @@ export default function AuthFinishPage() {
         router.replace("/onboarding/identity");
       } catch {
         if (cancelled) return;
-        router.replace("/onboarding/identity");
+        router.replace("/onboarding/pin");
       }
     };
 

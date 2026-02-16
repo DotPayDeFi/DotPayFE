@@ -14,6 +14,7 @@ import { MpesaFlowType, MpesaTransaction } from "@/types/mpesa";
 
 const USDC_ARBITRUM_SEPOLIA_ADDRESS = "0x75faf114eafb1BDbe2F0316DF893fd58CE46AA4d" as const;
 const USDC_ARBITRUM_ONE_ADDRESS = "0xaf88d065e77c8cC2239327C5EDb3A432268e5831" as const;
+const PIN_LENGTH = 6;
 
 type SendMode = "cashout" | "paybill" | "buygoods";
 type Step = "form" | "confirm" | "processing" | "receipt";
@@ -56,6 +57,10 @@ function createIdempotencyKey(prefix: string) {
 function shortAddress(value: string) {
   if (!value || value.length < 12) return value;
   return `${value.slice(0, 6)}...${value.slice(-4)}`;
+}
+
+function normalizePin(value: string) {
+  return String(value || "").replace(/\D/g, "").slice(0, PIN_LENGTH);
 }
 
 export function MpesaSendModePage({ mode, onBack }: { mode: SendMode; onBack: () => void }) {
@@ -208,8 +213,9 @@ export function MpesaSendModePage({ mode, onBack }: { mode: SendMode; onBack: ()
       toast.error("Missing quote. Start again.");
       return;
     }
-    if (!pin || pin.length < 4) {
-      toast.error("Enter your app PIN.");
+    const normalizedPin = normalizePin(pin);
+    if (!normalizedPin || normalizedPin.length !== PIN_LENGTH) {
+      toast.error(`Enter your ${PIN_LENGTH}-digit app PIN.`);
       return;
     }
 
@@ -234,7 +240,7 @@ export function MpesaSendModePage({ mode, onBack }: { mode: SendMode; onBack: ()
           idempotencyKey,
           quoteId: quoteTransaction.quote.quoteId,
           phoneNumber: phoneNumber.trim(),
-          pin,
+          pin: normalizedPin,
           signature,
           signedAt,
           nonce,
@@ -248,7 +254,7 @@ export function MpesaSendModePage({ mode, onBack }: { mode: SendMode; onBack: ()
           quoteId: quoteTransaction.quote.quoteId,
           paybillNumber: paybillNumber.trim(),
           accountReference: accountReference.trim(),
-          pin,
+          pin: normalizedPin,
           signature,
           signedAt,
           nonce,
@@ -262,7 +268,7 @@ export function MpesaSendModePage({ mode, onBack }: { mode: SendMode; onBack: ()
           quoteId: quoteTransaction.quote.quoteId,
           tillNumber: tillNumber.trim(),
           accountReference: accountReference.trim() || "DotPay",
-          pin,
+          pin: normalizedPin,
           signature,
           signedAt,
           nonce,
@@ -280,7 +286,14 @@ export function MpesaSendModePage({ mode, onBack }: { mode: SendMode; onBack: ()
       setResultTransaction(terminal);
       setStep("receipt");
     } catch (err) {
-      toast.error(err instanceof Error ? err.message : "Failed to submit transaction.");
+      const message = err instanceof Error ? err.message : "Failed to submit transaction.";
+      toast.error(message);
+      if (message.toLowerCase().includes("pin is not set")) {
+        if (typeof window !== "undefined") {
+          window.location.assign("/onboarding/pin");
+          return;
+        }
+      }
       setStep("confirm");
     } finally {
       setBusy(false);
@@ -461,16 +474,19 @@ export function MpesaSendModePage({ mode, onBack }: { mode: SendMode; onBack: ()
                 <input
                   type="password"
                   className="mt-1 w-full rounded-xl border border-white/15 bg-white/5 px-3 py-2 text-sm"
-                  value={pin}
-                  onChange={(e) => setPin(e.target.value)}
-                  placeholder="Enter PIN"
+                  value={normalizePin(pin)}
+                  onChange={(e) => setPin(normalizePin(e.target.value))}
+                  placeholder={`Enter ${PIN_LENGTH}-digit PIN`}
+                  inputMode="numeric"
+                  maxLength={PIN_LENGTH}
+                  autoComplete="current-password"
                 />
               </div>
 
               <button
                 type="button"
                 onClick={handleConfirmAndSend}
-                disabled={busy || pin.length < 4}
+                disabled={busy || normalizePin(pin).length !== PIN_LENGTH}
                 className="w-full rounded-xl border border-emerald-300/20 bg-emerald-500/20 px-3 py-2 text-sm font-semibold text-emerald-100 hover:bg-emerald-500/30 disabled:opacity-60"
               >
                 {busy ? "Submitting..." : "Confirm and Send"}

@@ -65,6 +65,13 @@ export default function DotpayIdentityOnboardingPage() {
         profile = await getUserFromBackend(walletAddress);
       }
 
+      if (profile && !profile.pinSet) {
+        if (typeof window !== "undefined") {
+          window.location.assign("/onboarding/pin");
+        }
+        return;
+      }
+
       if (profile?.username) {
         redirectToHome();
         return;
