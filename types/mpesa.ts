@@ -42,6 +42,7 @@ export type MpesaDarajaDetails = {
   responseCode: string | null;
   responseDescription: string | null;
   resultCode: number | null;
+  resultCodeRaw: string | null;
   resultDesc: string | null;
   receiptNumber: string | null;
   customerMessage: string | null;
@@ -73,6 +74,20 @@ export type MpesaTransaction = {
   onchain?: {
     txHash: string | null;
     chainId: number | null;
+    required?: boolean;
+    verificationStatus?: "not_required" | "pending" | "verified" | "failed";
+    tokenAddress?: string | null;
+    tokenSymbol?: string | null;
+    treasuryAddress?: string | null;
+    expectedAmountUsd?: number;
+    expectedAmountUnits?: string | null;
+    fundedAmountUsd?: number;
+    fundedAmountUnits?: string | null;
+    fromAddress?: string | null;
+    toAddress?: string | null;
+    logIndex?: number | null;
+    verificationError?: string | null;
+    verifiedBy?: string | null;
     verifiedAt: string | null;
   };
   daraja: MpesaDarajaDetails;
@@ -102,6 +117,7 @@ export type CreateMpesaQuotePayload = {
 };
 
 export type InitiateOnrampPayload = {
+  idempotencyKey?: string;
   quoteId?: string;
   amount?: number;
   currency?: "KES" | "USD";
@@ -110,6 +126,7 @@ export type InitiateOnrampPayload = {
 };
 
 export type InitiateOfframpPayload = {
+  idempotencyKey?: string;
   quoteId?: string;
   amount?: number;
   currency?: "KES" | "USD";
@@ -124,6 +141,7 @@ export type InitiateOfframpPayload = {
 };
 
 export type InitiatePaybillPayload = {
+  idempotencyKey?: string;
   quoteId?: string;
   amount?: number;
   currency?: "KES" | "USD";
@@ -133,10 +151,13 @@ export type InitiatePaybillPayload = {
   signature: string;
   signedAt?: string;
   nonce?: string;
+  onchainTxHash?: string;
+  chainId?: number;
   businessId?: string;
 };
 
 export type InitiateBuygoodsPayload = {
+  idempotencyKey?: string;
   quoteId?: string;
   amount?: number;
   currency?: "KES" | "USD";
@@ -146,5 +167,7 @@ export type InitiateBuygoodsPayload = {
   signature: string;
   signedAt?: string;
   nonce?: string;
+  onchainTxHash?: string;
+  chainId?: number;
   businessId?: string;
 };

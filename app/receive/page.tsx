@@ -34,7 +34,7 @@ export default function ReceivePage() {
   const router = useRouter();
   const searchParams = useSearchParams();
   const modeParam = (searchParams?.get("mode") || "").trim().toLowerCase();
-  const showTopup = modeParam === "topup";
+  const showTopup = modeParam === "topup" || modeParam === "add-funds";
   const { address, sessionUser } = useAuthSession();
   const backendConfigured = isBackendApiConfigured();
 
@@ -253,8 +253,12 @@ export default function ReceivePage() {
             </button>
 
             <div className="text-right">
-              <p className="text-xs uppercase tracking-wide text-white/60">Receive</p>
-              <h1 className="text-xl font-semibold">Get paid</h1>
+              <p className="text-xs uppercase tracking-wide text-white/60">
+                {showTopup ? "Add Funds" : "Receive"}
+              </p>
+              <h1 className="text-xl font-semibold">
+                {showTopup ? "Top up or get paid" : "Get paid"}
+              </h1>
             </div>
           </header>
 

@@ -24,6 +24,20 @@ function createIdempotencyKey(prefix: string) {
   return `${prefix}:${rand}`;
 }
 
+function extractBodyAndIdempotency<T extends Record<string, unknown>>(
+  payload: T,
+  prefix: string
+): { body: Record<string, unknown>; idempotencyKey: string } {
+  const clone = { ...payload } as Record<string, unknown>;
+  const provided = String(clone.idempotencyKey || "").trim();
+  delete clone.idempotencyKey;
+
+  return {
+    body: clone,
+    idempotencyKey: provided || createIdempotencyKey(prefix),
+  };
+}
+
 async function request<T>(path: string, init: RequestInit = {}): Promise<T> {
   const response = await fetch(`/api/mpesa/${path.replace(/^\/+/, "")}`, {
     ...init,
@@ -54,42 +68,58 @@ export const mpesaClient = {
   },
 
   initiateOnrampStk: async (payload: InitiateOnrampPayload): Promise<MpesaApiEnvelope<MpesaTransaction>> => {
+    const { body, idempotencyKey } = extractBodyAndIdempotency(
+      payload as unknown as Record<string, unknown>,
+      "onramp"
+    );
     return request("onramp/stk/initiate", {
       method: "POST",
       headers: {
-        "Idempotency-Key": createIdempotencyKey("onramp"),
+        "Idempotency-Key": idempotencyKey,
       },
-      body: JSON.stringify(payload),
+      body: JSON.stringify(body),
     });
   },
 
   initiateOfframp: async (payload: InitiateOfframpPayload): Promise<MpesaApiEnvelope<MpesaTransaction>> => {
+    const { body, idempotencyKey } = extractBodyAndIdempotency(
+      payload as unknown as Record<string, unknown>,
+      "offramp"
+    );
     return request("offramp/initiate", {
       method: "POST",
       headers: {
-        "Idempotency-Key": createIdempotencyKey("offramp"),
+        "Idempotency-Key": idempotencyKey,
       },
-      body: JSON.stringify(payload),
+      body: JSON.stringify(body),
     });
   },
 
   initiatePaybill: async (payload: InitiatePaybillPayload): Promise<MpesaApiEnvelope<MpesaTransaction>> => {
+    const { body, idempotencyKey } = extractBodyAndIdempotency(
+      payload as unknown as Record<string, unknown>,
+      "paybill"
+    );
     return request("merchant/paybill/initiate", {
       method: "POST",
       headers: {
-        "Idempotency-Key": createIdempotencyKey("paybill"),
+        "Idempotency-Key": idempotencyKey,
       },
-      body: JSON.stringify(payload),
+      body: JSON.stringify(body),
     });
   },
 
   initiateBuygoods: async (payload: InitiateBuygoodsPayload): Promise<MpesaApiEnvelope<MpesaTransaction>> => {
+    const { body, idempotencyKey } = extractBodyAndIdempotency(
+      payload as unknown as Record<string, unknown>,
+      "buygoods"
+    );
     return request("merchant/buygoods/initiate", {
       method: "POST",
       headers: {
-        "Idempotency-Key": createIdempotencyKey("buygoods"),
+        "Idempotency-Key": idempotencyKey,
       },
-      body: JSON.stringify(payload),
+      body: JSON.stringify(body),
     });
   },
 

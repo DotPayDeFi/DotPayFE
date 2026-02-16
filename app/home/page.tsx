@@ -5,7 +5,6 @@ import { useCallback, useEffect, useMemo, useState } from "react";
 import { useRouter } from "next/navigation";
 import {
   ArrowDownLeft,
-  ArrowUpRight,
   Bell,
   ChevronRight,
   Copy,
@@ -13,8 +12,8 @@ import {
   Eye,
   EyeOff,
   LogOut,
-  Plus,
   RefreshCw,
+  Send,
   ShieldCheck,
   Sparkles,
   UserCircle2,
@@ -464,20 +463,16 @@ export default function HomePage() {
     }
   }, [profileAddress]);
 
-  const handleQuickAction = (action: "send" | "receive" | "pay" | "topup") => {
+  const handleQuickAction = (action: "send" | "pay" | "add-funds") => {
     if (action === "send") {
       router.push("/send");
       return;
     }
-    if (action === "receive") {
-      router.push("/receive");
-      return;
-    }
     if (action === "pay") {
-      router.push("/send?mode=paybill");
+      router.push("/send?mode=pay");
       return;
     }
-    router.push("/receive?mode=topup");
+    router.push("/receive?mode=add-funds");
   };
 
   const notificationsQuery = useNotifications({ limit: 25, enabled: backendConfigured });
@@ -660,36 +655,29 @@ export default function HomePage() {
               </div>
             </div>
 
-            <div className="relative mt-6 grid grid-cols-2 gap-3 md:grid-cols-4">
+            <div className="relative mt-6 grid grid-cols-1 gap-3 sm:grid-cols-3">
               {(
                 [
                   {
                     id: "send" as const,
                     label: "Send",
-                    hint: "Transfer money",
-                    icon: <ArrowUpRight className="h-5 w-5" />,
+                    hint: "On-chain or M-Pesa",
+                    icon: <Send className="h-5 w-5" />,
                     onClick: () => handleQuickAction("send"),
                   },
                   {
-                    id: "receive" as const,
-                    label: "Receive",
-                    hint: "Request payment",
-                    icon: <ArrowDownLeft className="h-5 w-5" />,
-                    onClick: () => handleQuickAction("receive"),
-                  },
-                  {
                     id: "pay" as const,
-                    label: "Pay bills",
+                    label: "Pay",
                     hint: "Utilities, merchants",
                     icon: <CreditCard className="h-5 w-5" />,
                     onClick: () => handleQuickAction("pay"),
                   },
                   {
-                    id: "topup" as const,
-                    label: "Top up",
-                    hint: "Add funds",
-                    icon: <Plus className="h-5 w-5" />,
-                    onClick: () => handleQuickAction("topup"),
+                    id: "add-funds" as const,
+                    label: "Add Funds",
+                    hint: "Top up or receive",
+                    icon: <ArrowDownLeft className="h-5 w-5" />,
+                    onClick: () => handleQuickAction("add-funds"),
                   },
                 ] as const
               ).map((action) => (

@@ -1,11 +1,19 @@
 "use client";
 
-import { useMemo, useState } from "react";
+import { useMemo, useRef, useState } from "react";
 import { ArrowLeft, CheckCircle2, Loader2, RefreshCw } from "lucide-react";
 import toast from "react-hot-toast";
-import { useActiveAccount } from "thirdweb/react";
+import { getContract, waitForReceipt } from "thirdweb";
+import { transfer } from "thirdweb/extensions/erc20";
+import { useActiveAccount, useSendTransaction } from "thirdweb/react";
 import { useMpesaFlows } from "@/hooks/useMpesaFlows";
+import { getDotPayNetwork, getDotPayUsdcChain } from "@/lib/dotpayNetwork";
+import { buildMpesaAuthorizationMessage } from "@/lib/mpesa-signing";
+import { thirdwebClient } from "@/lib/thirdwebClient";
 import { MpesaFlowType, MpesaTransaction } from "@/types/mpesa";
+
+const USDC_ARBITRUM_SEPOLIA_ADDRESS = "0x75faf114eafb1BDbe2F0316DF893fd58CE46AA4d" as const;
+const USDC_ARBITRUM_ONE_ADDRESS = "0xaf88d065e77c8cC2239327C5EDb3A432268e5831" as const;
 
 type SendMode = "cashout" | "paybill" | "buygoods";
 type Step = "form" | "confirm" | "processing" | "receipt";
@@ -31,6 +39,25 @@ const LABELS: Record<SendMode, { title: string; subtitle: string }> = {
   },
 };
 
+function createNonce() {
+  if (typeof crypto !== "undefined" && "randomUUID" in crypto) {
+    return crypto.randomUUID().replace(/-/g, "");
+  }
+  return `${Date.now()}${Math.random().toString(36).slice(2)}`;
+}
+
+function createIdempotencyKey(prefix: string) {
+  if (typeof crypto !== "undefined" && "randomUUID" in crypto) {
+    return `${prefix}:${crypto.randomUUID()}`;
+  }
+  return `${prefix}:${Date.now()}-${Math.random().toString(36).slice(2)}`;
+}
+
+function shortAddress(value: string) {
+  if (!value || value.length < 12) return value;
+  return `${value.slice(0, 6)}...${value.slice(-4)}`;
+}
+
 export function MpesaSendModePage({ mode, onBack }: { mode: SendMode; onBack: () => void }) {
   const account = useActiveAccount();
   const {
@@ -41,6 +68,14 @@ export function MpesaSendModePage({ mode, onBack }: { mode: SendMode; onBack: ()
     pollTransaction,
     getTransaction,
   } = useMpesaFlows();
+  const { mutateAsync: sendOnchainTx } = useSendTransaction({
+    payModal: false,
+  });
+
+  const dotpayNetwork = getDotPayNetwork();
+  const usdcChain = getDotPayUsdcChain(dotpayNetwork);
+  const fallbackUsdcAddress =
+    dotpayNetwork === "sepolia" ? USDC_ARBITRUM_SEPOLIA_ADDRESS : USDC_ARBITRUM_ONE_ADDRESS;
 
   const [step, setStep] = useState<Step>("form");
   const [pin, setPin] = useState("");
@@ -52,6 +87,8 @@ export function MpesaSendModePage({ mode, onBack }: { mode: SendMode; onBack: ()
   const [quoteTransaction, setQuoteTransaction] = useState<MpesaTransaction | null>(null);
   const [resultTransaction, setResultTransaction] = useState<MpesaTransaction | null>(null);
   const [busy, setBusy] = useState(false);
+  const [processingLabel, setProcessingLabel] = useState("Processing M-Pesa transaction");
+  const idempotencyKeyRef = useRef<string | null>(null);
 
   const labels = LABELS[mode];
   const flowType = FLOW_MAP[mode];
@@ -92,6 +129,7 @@ export function MpesaSendModePage({ mode, onBack }: { mode: SendMode; onBack: ()
       const response = await createQuote(payload);
       setQuoteTransaction(response.data.transaction);
       setStep("confirm");
+      idempotencyKeyRef.current = createIdempotencyKey(flowType);
     } catch (err) {
       toast.error(err instanceof Error ? err.message : "Failed to create quote.");
     } finally {
@@ -99,17 +137,70 @@ export function MpesaSendModePage({ mode, onBack }: { mode: SendMode; onBack: ()
     }
   }
 
-  async function signIntent() {
-    const message = `DotPay ${mode} authorization\nAmount: ${amountValue} KES\nTimestamp: ${new Date().toISOString()}`;
-    try {
-      if (account && typeof (account as any).signMessage === "function") {
-        return await (account as any).signMessage({ message });
-      }
-    } catch {
-      // fall through to deterministic fallback
+  async function signIntent(tx: MpesaTransaction, signedAt: string, nonce: string) {
+    if (!account || typeof (account as any).signMessage !== "function") {
+      throw new Error("Reconnect your wallet to authorize this transfer.");
     }
 
-    return `fallback-signature-${Date.now()}-${message.slice(0, 8)}`;
+    const message = buildMpesaAuthorizationMessage({
+      tx,
+      signedAt,
+      nonce,
+    });
+
+    return (account as any).signMessage({ message });
+  }
+
+  async function submitOnchainFunding(tx: MpesaTransaction) {
+    if (!tx.onchain?.required) {
+      return {
+        onchainTxHash: undefined as string | undefined,
+        chainId: undefined as number | undefined,
+      };
+    }
+
+    const expectedAmountUnits = String(tx.onchain.expectedAmountUnits || "").trim();
+    const treasuryAddress = String(tx.onchain.treasuryAddress || "").trim();
+    const tokenAddress = String(tx.onchain.tokenAddress || "").trim() || fallbackUsdcAddress;
+    const chainId = typeof tx.onchain.chainId === "number" ? tx.onchain.chainId : usdcChain.id;
+
+    if (!expectedAmountUnits || !/^\d+$/.test(expectedAmountUnits)) {
+      throw new Error("Quote is missing the required USDC funding amount.");
+    }
+    if (!treasuryAddress || !/^0x[a-fA-F0-9]{40}$/.test(treasuryAddress)) {
+      throw new Error("Treasury address is not configured correctly.");
+    }
+    if (!tokenAddress || !/^0x[a-fA-F0-9]{40}$/.test(tokenAddress)) {
+      throw new Error("USDC contract address is not configured correctly.");
+    }
+    if (chainId !== usdcChain.id) {
+      throw new Error(`Wrong chain for funding. Expected chain ${usdcChain.id}.`);
+    }
+
+    setProcessingLabel("Debiting USDC from your wallet");
+    const usdcContract = getContract({
+      client: thirdwebClient,
+      chain: usdcChain,
+      address: tokenAddress,
+    });
+
+    const fundingTx = transfer({
+      contract: usdcContract,
+      to: treasuryAddress,
+      amountWei: BigInt(expectedAmountUnits),
+    });
+
+    const sent = await sendOnchainTx(fundingTx);
+    await waitForReceipt({
+      chain: usdcChain,
+      client: thirdwebClient,
+      transactionHash: sent.transactionHash,
+    });
+
+    return {
+      onchainTxHash: sent.transactionHash,
+      chainId,
+    };
   }
 
   async function handleConfirmAndSend() {
@@ -125,42 +216,63 @@ export function MpesaSendModePage({ mode, onBack }: { mode: SendMode; onBack: ()
     try {
       setBusy(true);
       setStep("processing");
+      setProcessingLabel("Authorizing transfer");
 
-      const signature = await signIntent();
       const signedAt = new Date().toISOString();
+      const nonce = createNonce();
+      const signature = await signIntent(quoteTransaction, signedAt, nonce);
+      const funding = await submitOnchainFunding(quoteTransaction);
+      setProcessingLabel("Submitting M-Pesa request");
+
+      const idempotencyKey =
+        idempotencyKeyRef.current || createIdempotencyKey(flowType);
+      idempotencyKeyRef.current = idempotencyKey;
 
       let initiated: MpesaTransaction;
       if (mode === "cashout") {
         const response = await initiateOfframp({
+          idempotencyKey,
           quoteId: quoteTransaction.quote.quoteId,
           phoneNumber: phoneNumber.trim(),
           pin,
           signature,
           signedAt,
+          nonce,
+          onchainTxHash: funding.onchainTxHash,
+          chainId: funding.chainId,
         });
         initiated = response.data;
       } else if (mode === "paybill") {
         const response = await initiatePaybill({
+          idempotencyKey,
           quoteId: quoteTransaction.quote.quoteId,
           paybillNumber: paybillNumber.trim(),
           accountReference: accountReference.trim(),
           pin,
           signature,
           signedAt,
+          nonce,
+          onchainTxHash: funding.onchainTxHash,
+          chainId: funding.chainId,
         });
         initiated = response.data;
       } else {
         const response = await initiateBuygoods({
+          idempotencyKey,
           quoteId: quoteTransaction.quote.quoteId,
           tillNumber: tillNumber.trim(),
           accountReference: accountReference.trim() || "DotPay",
           pin,
           signature,
           signedAt,
+          nonce,
+          onchainTxHash: funding.onchainTxHash,
+          chainId: funding.chainId,
         });
         initiated = response.data;
       }
 
+      setProcessingLabel("Waiting for M-Pesa callback");
       const terminal = await pollTransaction(initiated.transactionId, {
         intervalMs: 3500,
         timeoutMs: 120000,
@@ -199,6 +311,8 @@ export function MpesaSendModePage({ mode, onBack }: { mode: SendMode; onBack: ()
     setPin("");
     setQuoteTransaction(null);
     setResultTransaction(null);
+    setProcessingLabel("Processing M-Pesa transaction");
+    idempotencyKeyRef.current = null;
   }
 
   return (
@@ -310,10 +424,36 @@ export function MpesaSendModePage({ mode, onBack }: { mode: SendMode; onBack: ()
           {step === "confirm" && quoteTransaction && (
             <div className="mt-4 space-y-4">
               <div className="rounded-xl border border-white/10 bg-white/5 p-4 text-sm">
-                <div className="flex justify-between"><span>Total debit</span><strong>KES {quoteTransaction.quote.totalDebitKes.toFixed(2)}</strong></div>
-                <div className="mt-1 flex justify-between text-white/70"><span>Receive amount</span><span>KES {quoteTransaction.quote.expectedReceiveKes.toFixed(2)}</span></div>
-                <div className="mt-1 flex justify-between text-white/70"><span>Fee</span><span>KES {quoteTransaction.quote.feeAmountKes.toFixed(2)}</span></div>
-                <div className="mt-1 flex justify-between text-white/70"><span>Network fee</span><span>KES {quoteTransaction.quote.networkFeeKes.toFixed(2)}</span></div>
+                <div className="flex justify-between">
+                  <span>Total debit</span>
+                  <strong>KES {quoteTransaction.quote.totalDebitKes.toFixed(2)}</strong>
+                </div>
+                <div className="mt-1 flex justify-between text-white/70">
+                  <span>Receive amount</span>
+                  <span>KES {quoteTransaction.quote.expectedReceiveKes.toFixed(2)}</span>
+                </div>
+                <div className="mt-1 flex justify-between text-white/70">
+                  <span>Fee</span>
+                  <span>KES {quoteTransaction.quote.feeAmountKes.toFixed(2)}</span>
+                </div>
+                <div className="mt-1 flex justify-between text-white/70">
+                  <span>Network fee</span>
+                  <span>KES {quoteTransaction.quote.networkFeeKes.toFixed(2)}</span>
+                </div>
+                {quoteTransaction.onchain?.required && (
+                  <>
+                    <div className="mt-1 flex justify-between text-white/70">
+                      <span>USDC wallet debit</span>
+                      <span>{(quoteTransaction.onchain.expectedAmountUsd || 0).toFixed(6)} USDC</span>
+                    </div>
+                    <div className="mt-1 flex justify-between text-white/70">
+                      <span>Treasury wallet</span>
+                      <span className="font-mono">
+                        {shortAddress(String(quoteTransaction.onchain.treasuryAddress || ""))}
+                      </span>
+                    </div>
+                  </>
+                )}
               </div>
 
               <div>
@@ -342,9 +482,11 @@ export function MpesaSendModePage({ mode, onBack }: { mode: SendMode; onBack: ()
             <div className="mt-5 rounded-xl border border-white/10 bg-white/5 p-4 text-sm">
               <div className="flex items-center gap-2 text-white/90">
                 <Loader2 className="h-4 w-4 animate-spin" />
-                Processing M-Pesa transaction
+                {processingLabel}
               </div>
-              <p className="mt-2 text-xs text-white/70">We are waiting for Daraja callback confirmation.</p>
+              <p className="mt-2 text-xs text-white/70">
+                We are waiting for Daraja callback confirmation.
+              </p>
 
               <button
                 type="button"
@@ -366,18 +508,52 @@ export function MpesaSendModePage({ mode, onBack }: { mode: SendMode; onBack: ()
               </div>
 
               <div className="rounded-xl border border-white/10 bg-white/5 p-4">
-                <div className="flex justify-between"><span>Transaction ID</span><span className="font-mono">{resultTransaction.transactionId}</span></div>
-                <div className="mt-1 flex justify-between"><span>Flow</span><span>{resultTransaction.flowType}</span></div>
-                <div className="mt-1 flex justify-between"><span>Status</span><span>{resultTransaction.status}</span></div>
-                <div className="mt-1 flex justify-between"><span>M-Pesa Receipt</span><span>{resultTransaction.daraja.receiptNumber || "-"}</span></div>
-                <div className="mt-1 flex justify-between"><span>Result Code</span><span>{resultTransaction.daraja.resultCode ?? "-"}</span></div>
-                <div className="mt-1 flex justify-between"><span>Result</span><span className="max-w-[60%] text-right text-white/80">{resultTransaction.daraja.resultDesc || "-"}</span></div>
+                <div className="flex justify-between">
+                  <span>Transaction ID</span>
+                  <span className="font-mono">{resultTransaction.transactionId}</span>
+                </div>
+                <div className="mt-1 flex justify-between">
+                  <span>Flow</span>
+                  <span>{resultTransaction.flowType}</span>
+                </div>
+                <div className="mt-1 flex justify-between">
+                  <span>Status</span>
+                  <span>{resultTransaction.status}</span>
+                </div>
+                <div className="mt-1 flex justify-between">
+                  <span>M-Pesa Receipt</span>
+                  <span>{resultTransaction.daraja.receiptNumber || "-"}</span>
+                </div>
+                <div className="mt-1 flex justify-between">
+                  <span>Funding TX</span>
+                  <span className="font-mono">
+                    {resultTransaction.onchain?.txHash
+                      ? shortAddress(resultTransaction.onchain.txHash)
+                      : "-"}
+                  </span>
+                </div>
+                <div className="mt-1 flex justify-between">
+                  <span>Result Code</span>
+                  <span>
+                    {resultTransaction.daraja.resultCode ??
+                      resultTransaction.daraja.resultCodeRaw ??
+                      "-"}
+                  </span>
+                </div>
+                <div className="mt-1 flex justify-between">
+                  <span>Result</span>
+                  <span className="max-w-[60%] text-right text-white/80">
+                    {resultTransaction.daraja.resultDesc || "-"}
+                  </span>
+                </div>
                 {resultTransaction.refund?.status !== "none" && (
                   <div className="mt-1 flex justify-between">
                     <span>Refund</span>
                     <span className="max-w-[60%] text-right text-white/80">
                       {resultTransaction.refund.status}
-                      {resultTransaction.refund.reason ? `: ${resultTransaction.refund.reason}` : ""}
+                      {resultTransaction.refund.reason
+                        ? `: ${resultTransaction.refund.reason}`
+                        : ""}
                     </span>
                   </div>
                 )}
@@ -387,9 +563,14 @@ export function MpesaSendModePage({ mode, onBack }: { mode: SendMode; onBack: ()
                 <p className="mb-2 text-xs uppercase tracking-wide text-white/60">Timeline</p>
                 <div className="space-y-2">
                   {resultTransaction.history?.map((item, idx) => (
-                    <div key={`${item.to}-${idx}`} className="flex items-center justify-between gap-3 text-xs">
+                    <div
+                      key={`${item.to}-${idx}`}
+                      className="flex items-center justify-between gap-3 text-xs"
+                    >
                       <span>{item.to}</span>
-                      <span className="text-white/60">{new Date(item.at).toLocaleString()}</span>
+                      <span className="text-white/60">
+                        {new Date(item.at).toLocaleString()}
+                      </span>
                     </div>
                   ))}
                 </div>

@@ -171,7 +171,7 @@ export function MpesaTopupPanel() {
             <div className="flex justify-between"><span>Transaction ID</span><span className="font-mono">{resultTx.transactionId}</span></div>
             <div className="mt-1 flex justify-between"><span>Checkout ID</span><span className="font-mono">{resultTx.daraja.checkoutRequestId || "-"}</span></div>
             <div className="mt-1 flex justify-between"><span>Receipt</span><span>{resultTx.daraja.receiptNumber || "-"}</span></div>
-            <div className="mt-1 flex justify-between"><span>Result Code</span><span>{resultTx.daraja.resultCode ?? "-"}</span></div>
+            <div className="mt-1 flex justify-between"><span>Result Code</span><span>{resultTx.daraja.resultCode ?? resultTx.daraja.resultCodeRaw ?? "-"}</span></div>
             <div className="mt-1 flex justify-between"><span>Result</span><span className="text-right text-white/80">{resultTx.daraja.resultDesc || "-"}</span></div>
           </div>
         </div>

@@ -52,6 +52,8 @@ type ResolvedRecipient = {
   displayName: string;
 };
 
+type MpesaMode = "cashout" | "paybill" | "buygoods";
+
 const isEvmAddress = (value: string) => /^0x[a-fA-F0-9]{40}$/.test(value.trim());
 const isLikelyEmail = (value: string) => /^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(value.trim());
 const normalizePhone = (value: string) => value.trim().replace(/[\s()-]/g, "");
@@ -79,10 +81,21 @@ export default function SendPage() {
   const router = useRouter();
   const searchParams = useSearchParams();
   const modeParam = (searchParams?.get("mode") || "").trim().toLowerCase();
-  const mpesaMode =
+  const hasOnchainPrefill = Boolean(
+    (searchParams?.get("kind") || searchParams?.get("recipientKind") || "").trim() ||
+      (searchParams?.get("to") || searchParams?.get("recipient") || "").trim() ||
+      (searchParams?.get("amount") || "").trim() ||
+      (searchParams?.get("currency") || "").trim() ||
+      (searchParams?.get("note") || "").trim()
+  );
+  const mpesaMode: MpesaMode | null =
     modeParam === "cashout" || modeParam === "paybill" || modeParam === "buygoods"
       ? modeParam
       : null;
+  const showPayOptions = modeParam === "pay";
+  const showOnchainFlow = modeParam === "onchain" || (!modeParam && hasOnchainPrefill);
+  const showSendOptions =
+    !showPayOptions && !showOnchainFlow && !mpesaMode;
 
   const queryClient = useQueryClient();
   const account = useActiveAccount();
@@ -633,6 +646,106 @@ export default function SendPage() {
     return (
       <AuthGuard redirectTo="/onboarding">
         <MpesaSendModePage mode={mpesaMode} onBack={() => router.push("/home")} />
+      </AuthGuard>
+    );
+  }
+
+  if (showSendOptions) {
+    return (
+      <AuthGuard redirectTo="/onboarding">
+        <main className="app-background min-h-screen px-4 py-5 text-white !justify-start">
+          <section className="mx-auto w-full max-w-xl space-y-4">
+            <header className="flex items-center justify-between gap-3">
+              <button
+                type="button"
+                onClick={() => router.push("/home")}
+                className="inline-flex items-center gap-2 rounded-xl border border-white/15 bg-white/5 px-3 py-2 text-sm hover:bg-white/10"
+              >
+                <ArrowLeft className="h-4 w-4" />
+                Back
+              </button>
+
+              <div className="text-right">
+                <p className="text-xs uppercase tracking-wide text-white/60">Send</p>
+                <h1 className="text-xl font-semibold">Choose method</h1>
+              </div>
+            </header>
+
+            <article className="space-y-3 rounded-2xl border border-white/10 bg-black/30 p-5">
+              <button
+                type="button"
+                onClick={() => router.push("/send?mode=onchain")}
+                className="w-full rounded-xl border border-white/15 bg-white/5 p-4 text-left hover:bg-white/10"
+              >
+                <p className="text-sm font-semibold">Send on-chain</p>
+                <p className="mt-1 text-xs text-white/65">
+                  Transfer USDC to a DotPay ID, wallet address, email, or phone-linked DotPay account.
+                </p>
+              </button>
+
+              <button
+                type="button"
+                onClick={() => router.push("/send?mode=cashout")}
+                className="w-full rounded-xl border border-cyan-300/25 bg-cyan-500/10 p-4 text-left hover:bg-cyan-500/20"
+              >
+                <p className="text-sm font-semibold">Send off-chain to M-Pesa</p>
+                <p className="mt-1 text-xs text-white/70">
+                  Cash out from your wallet to an M-Pesa phone number.
+                </p>
+              </button>
+            </article>
+          </section>
+        </main>
+      </AuthGuard>
+    );
+  }
+
+  if (showPayOptions) {
+    return (
+      <AuthGuard redirectTo="/onboarding">
+        <main className="app-background min-h-screen px-4 py-5 text-white !justify-start">
+          <section className="mx-auto w-full max-w-xl space-y-4">
+            <header className="flex items-center justify-between gap-3">
+              <button
+                type="button"
+                onClick={() => router.push("/home")}
+                className="inline-flex items-center gap-2 rounded-xl border border-white/15 bg-white/5 px-3 py-2 text-sm hover:bg-white/10"
+              >
+                <ArrowLeft className="h-4 w-4" />
+                Back
+              </button>
+
+              <div className="text-right">
+                <p className="text-xs uppercase tracking-wide text-white/60">Pay</p>
+                <h1 className="text-xl font-semibold">M-Pesa only</h1>
+              </div>
+            </header>
+
+            <article className="space-y-3 rounded-2xl border border-white/10 bg-black/30 p-5">
+              <button
+                type="button"
+                onClick={() => router.push("/send?mode=paybill")}
+                className="w-full rounded-xl border border-white/15 bg-white/5 p-4 text-left hover:bg-white/10"
+              >
+                <p className="text-sm font-semibold">PayBill</p>
+                <p className="mt-1 text-xs text-white/65">
+                  Pay a business paybill number with an account reference.
+                </p>
+              </button>
+
+              <button
+                type="button"
+                onClick={() => router.push("/send?mode=buygoods")}
+                className="w-full rounded-xl border border-white/15 bg-white/5 p-4 text-left hover:bg-white/10"
+              >
+                <p className="text-sm font-semibold">Buy Goods (Till)</p>
+                <p className="mt-1 text-xs text-white/65">
+                  Pay local merchants using their till number.
+                </p>
+              </button>
+            </article>
+          </section>
+        </main>
       </AuthGuard>
     );
   }
