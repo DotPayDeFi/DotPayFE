@@ -14,7 +14,7 @@ import { buildMpesaAuthorizationMessage } from "@/lib/mpesa-signing";
 import { thirdwebClient } from "@/lib/thirdwebClient";
 import { MpesaFlowType, MpesaTransaction } from "@/types/mpesa";
 import { DetailsDisclosure } from "@/components/ui/DetailsDisclosure";
-import { PinKeypad } from "@/components/ui/PinKeypad";
+import { PinKeyboardInput } from "@/components/ui/PinKeyboardInput";
 
 const USDC_ARBITRUM_SEPOLIA_ADDRESS = "0x75faf114eafb1BDbe2F0316DF893fd58CE46AA4d" as const;
 const USDC_ARBITRUM_ONE_ADDRESS = "0xaf88d065e77c8cC2239327C5EDb3A432268e5831" as const;
@@ -750,7 +750,7 @@ export function MpesaSendModePage({ mode, onBack }: { mode: SendMode; onBack: ()
                 </DetailsDisclosure>
               </div>
 
-              <PinKeypad
+              <PinKeyboardInput
                 value={normalizePin(pin)}
                 onChange={setPin}
                 length={PIN_LENGTH}

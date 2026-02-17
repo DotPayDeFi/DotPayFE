@@ -12,7 +12,7 @@ import {
   syncUserToBackend,
   type BackendUserRecord,
 } from "@/lib/backendUser";
-import { PinKeypad } from "@/components/ui/PinKeypad";
+import { PinKeyboardInput } from "@/components/ui/PinKeyboardInput";
 
 const PIN_LENGTH = 6;
 
@@ -226,7 +226,7 @@ export default function PinOnboardingPage() {
         <form className="mt-6 space-y-4" onSubmit={handleSubmit}>
           {phase === "create" && (
             <>
-              <PinKeypad
+              <PinKeyboardInput
                 value={normalizedPin}
                 onChange={(v) => {
                   setError(null);
@@ -276,7 +276,7 @@ export default function PinOnboardingPage() {
 
           {phase === "confirm" && (
             <>
-              <PinKeypad
+              <PinKeyboardInput
                 value={normalizedConfirm}
                 onChange={(v) => {
                   setError(null);
