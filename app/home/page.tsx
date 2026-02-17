@@ -21,6 +21,7 @@ import {
   Sparkles,
   Store,
   UserCircle2,
+  Wallet,
 } from "lucide-react";
 import toast from "react-hot-toast";
 import { getContract } from "thirdweb";
@@ -819,6 +820,14 @@ export default function HomePage() {
                       icon: <ArrowDownLeft className="h-6 w-6" />,
                       onClick: () => router.push("/add-funds?tab=topup"),
                       tone: "border-cyan-300/25 bg-cyan-500/10 text-cyan-100 hover:bg-cyan-500/15",
+                    },
+                    {
+                      id: "send_dotpay",
+                      label: "Send",
+                      hint: "Via DotPay",
+                      icon: <Wallet className="h-6 w-6" />,
+                      onClick: () => router.push("/send?kind=dotpay"),
+                      tone: "border-white/10 bg-white/5 text-white/85 hover:bg-white/10",
                     },
                     {
                       id: "paybill",
