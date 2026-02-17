@@ -1,7 +1,7 @@
 "use client";
 
 import { FormEvent, useCallback, useEffect, useMemo, useState } from "react";
-import { Eye, EyeOff, ShieldCheck } from "lucide-react";
+import { ArrowLeft, ShieldCheck } from "lucide-react";
 import toast from "react-hot-toast";
 import AuthHandoff from "@/components/auth/AuthHandoff";
 import { useAuthSession } from "@/context/AuthSessionContext";
@@ -12,7 +12,7 @@ import {
   syncUserToBackend,
   type BackendUserRecord,
 } from "@/lib/backendUser";
-import { cn } from "@/lib/utils";
+import { PinKeypad } from "@/components/ui/PinKeypad";
 
 const PIN_LENGTH = 6;
 
@@ -42,10 +42,9 @@ export default function PinOnboardingPage() {
   const [error, setError] = useState<string | null>(null);
   const [profile, setProfile] = useState<BackendUserRecord | null>(null);
 
+  const [phase, setPhase] = useState<"create" | "confirm">("create");
   const [pin, setPin] = useState("");
   const [confirmPin, setConfirmPin] = useState("");
-  const [showPin, setShowPin] = useState(false);
-  const [showConfirm, setShowConfirm] = useState(false);
 
   const normalizedPin = useMemo(() => normalizeDigits(pin), [pin]);
   const normalizedConfirm = useMemo(() => normalizeDigits(confirmPin), [confirmPin]);
@@ -108,7 +107,7 @@ export default function PinOnboardingPage() {
   const handleSubmit = async (event: FormEvent<HTMLFormElement>) => {
     event.preventDefault();
     if (!walletAddress) {
-      setError("Wallet not detected. Please reconnect and try again.");
+      setError("Account not detected. Please reconnect and try again.");
       return;
     }
     if (!backendConfigured) {
@@ -155,7 +154,7 @@ export default function PinOnboardingPage() {
     return (
       <AuthHandoff
         variant="onboarding"
-        title="Securing your DotPay wallet"
+        title="Securing your DotPay account"
         subtitle={
           !walletAddress
             ? "Finalizing secure sign-in..."
@@ -196,88 +195,126 @@ export default function PinOnboardingPage() {
   return (
     <main className="app-background min-h-screen px-4 py-8 text-white">
       <section className="mx-auto w-full max-w-xl rounded-2xl border border-white/10 bg-black/40 p-6">
-        <div className="flex items-start justify-between gap-3">
-          <div>
-            <p className="text-xs uppercase tracking-[0.2em] text-cyan-200/80">Step 1 of 2</p>
-            <h1 className="mt-2 text-2xl font-bold">Set your security PIN</h1>
-            <p className="mt-2 text-sm text-white/75">
-              You will use this 6-digit PIN to approve cashouts and merchant payments.
-            </p>
+        <header className="flex items-start justify-between gap-3">
+          <button
+            type="button"
+            onClick={() => redirectTo("/onboarding")}
+            className="inline-flex items-center gap-2 rounded-xl border border-white/15 bg-white/5 px-3 py-2 text-sm hover:bg-white/10"
+          >
+            <ArrowLeft className="h-4 w-4" />
+            Back
+          </button>
+
+          <div className="text-right">
+            <p className="text-xs uppercase tracking-[0.2em] text-cyan-200/80">Security</p>
+            <h1 className="mt-1 text-xl font-bold">Set your PIN</h1>
           </div>
-          <div className="rounded-2xl border border-white/10 bg-white/5 p-3 text-cyan-100">
+        </header>
+
+        <div className="mt-4 flex items-start gap-3 rounded-2xl border border-white/10 bg-white/5 p-4">
+          <div className="mt-0.5 rounded-2xl border border-white/10 bg-black/20 p-3 text-cyan-100">
             <ShieldCheck className="h-6 w-6" />
+          </div>
+          <div className="flex-1">
+            <p className="text-sm font-semibold">Approve payments with your PIN</p>
+            <p className="mt-1 text-xs text-white/65">
+              You’ll use this {PIN_LENGTH}-digit PIN to approve M-Pesa payments and cashouts.
+            </p>
           </div>
         </div>
 
         <form className="mt-6 space-y-4" onSubmit={handleSubmit}>
-          <div>
-            <label className="mb-2 block text-sm font-medium">New PIN</label>
-            <div className="relative">
-              <input
-                type={showPin ? "text" : "password"}
+          {phase === "create" && (
+            <>
+              <PinKeypad
                 value={normalizedPin}
-                onChange={(e) => setPin(normalizeDigits(e.target.value))}
-                placeholder="••••••"
-                inputMode="numeric"
-                autoComplete="new-password"
-                className={cn(
-                  "w-full rounded-xl border border-white/15 bg-white/5 px-3 py-3 pr-12 text-center text-lg tracking-[0.45em] outline-none placeholder:text-white/35",
-                  normalizedPin.length > 0 && normalizedPin.length < PIN_LENGTH ? "border-amber-300/35" : ""
-                )}
+                onChange={(v) => {
+                  setError(null);
+                  setPin(v);
+                }}
+                length={PIN_LENGTH}
+                disabled={submitting}
+                label="Create a 6-digit PIN"
+                helperText="Use a new PIN that you don’t use anywhere else."
+                errorText={error}
+                className="bg-black/25"
               />
+
+              <details className="rounded-2xl border border-white/10 bg-white/5 p-4">
+                <summary className="cursor-pointer list-none text-sm font-semibold text-white/85">
+                  Why do I need this?
+                </summary>
+                <p className="mt-2 text-xs text-white/65">
+                  It helps protect your money if someone gets access to your phone session. We’ll ask
+                  for your PIN before cashouts and merchant payments.
+                </p>
+              </details>
+
+              <div className="rounded-2xl border border-white/10 bg-white/5 p-4">
+                <p className="text-xs uppercase tracking-wide text-white/55">PIN tips</p>
+                <p className="mt-2 text-xs text-white/70">Do not reuse your M-Pesa PIN</p>
+                <p className="mt-1 text-xs text-white/70">Avoid birthdays</p>
+              </div>
+
               <button
                 type="button"
-                onClick={() => setShowPin((v) => !v)}
-                className="absolute right-3 top-1/2 -translate-y-1/2 text-white/55 hover:text-white"
-                aria-label={showPin ? "Hide PIN" : "Show PIN"}
+                onClick={() => {
+                  if (normalizedPin.length !== PIN_LENGTH) {
+                    setError(`PIN must be exactly ${PIN_LENGTH} digits.`);
+                    return;
+                  }
+                  setError(null);
+                  setPhase("confirm");
+                }}
+                disabled={submitting}
+                className="w-full rounded-xl border border-cyan-300/40 bg-cyan-500/15 px-4 py-3 text-sm font-semibold text-cyan-100 hover:bg-cyan-500/25 disabled:opacity-60"
               >
-                {showPin ? <EyeOff className="h-5 w-5" /> : <Eye className="h-5 w-5" />}
+                Continue
               </button>
-            </div>
-          </div>
-
-          <div>
-            <label className="mb-2 block text-sm font-medium">Confirm PIN</label>
-            <div className="relative">
-              <input
-                type={showConfirm ? "text" : "password"}
-                value={normalizedConfirm}
-                onChange={(e) => setConfirmPin(normalizeDigits(e.target.value))}
-                placeholder="••••••"
-                inputMode="numeric"
-                autoComplete="new-password"
-                className={cn(
-                  "w-full rounded-xl border border-white/15 bg-white/5 px-3 py-3 pr-12 text-center text-lg tracking-[0.45em] outline-none placeholder:text-white/35",
-                  normalizedConfirm.length > 0 && normalizedConfirm.length < PIN_LENGTH ? "border-amber-300/35" : ""
-                )}
-              />
-              <button
-                type="button"
-                onClick={() => setShowConfirm((v) => !v)}
-                className="absolute right-3 top-1/2 -translate-y-1/2 text-white/55 hover:text-white"
-                aria-label={showConfirm ? "Hide confirm PIN" : "Show confirm PIN"}
-              >
-                {showConfirm ? <EyeOff className="h-5 w-5" /> : <Eye className="h-5 w-5" />}
-              </button>
-            </div>
-          </div>
-
-          {error && (
-            <p className="rounded-lg border border-red-300/35 bg-red-500/10 px-3 py-2 text-xs text-red-100">
-              {error}
-            </p>
+            </>
           )}
 
-          <button
-            type="submit"
-            disabled={submitting || !pinsMatch}
-            className="w-full rounded-xl border border-cyan-300/40 bg-cyan-500/15 px-4 py-3 text-sm font-semibold text-cyan-100 hover:bg-cyan-500/25 disabled:opacity-60"
-          >
-            {submitting ? "Saving PIN..." : "Continue"}
-          </button>
+          {phase === "confirm" && (
+            <>
+              <PinKeypad
+                value={normalizedConfirm}
+                onChange={(v) => {
+                  setError(null);
+                  setConfirmPin(v);
+                }}
+                length={PIN_LENGTH}
+                disabled={submitting}
+                label="Confirm your PIN"
+                helperText="Re-enter your PIN to confirm."
+                errorText={error}
+                className="bg-black/25"
+              />
+
+              <div className="grid grid-cols-2 gap-3">
+                <button
+                  type="button"
+                  onClick={() => {
+                    setError(null);
+                    setConfirmPin("");
+                    setPhase("create");
+                  }}
+                  disabled={submitting}
+                  className="rounded-xl border border-white/15 bg-white/5 px-4 py-3 text-sm font-semibold text-white/80 hover:bg-white/10 disabled:opacity-60"
+                >
+                  Back
+                </button>
+                <button
+                  type="submit"
+                  disabled={submitting || !pinsMatch}
+                  className="rounded-xl border border-cyan-300/40 bg-cyan-500/15 px-4 py-3 text-sm font-semibold text-cyan-100 hover:bg-cyan-500/25 disabled:opacity-60"
+                >
+                  {submitting ? "Saving PIN..." : "Save PIN"}
+                </button>
+              </div>
+            </>
+          )}
         </form>
       </section>
     </main>
   );
 }
-

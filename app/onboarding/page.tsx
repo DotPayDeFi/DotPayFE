@@ -49,7 +49,7 @@ const Onboarding = () => {
       <AuthHandoff
         variant="onboarding"
         title="Welcome back"
-        subtitle="Opening your wallet..."
+        subtitle="Opening your account..."
       />
     );
   }
@@ -93,10 +93,15 @@ const Onboarding = () => {
       </div>
       <div className="mx-auto flex w-full max-w-[320px] flex-col items-center gap-3 pb-8">
         <div className="w-full">
-          <ThirdwebConnectButton mode="signup" />
+          <ThirdwebConnectButton
+            mode="signup"
+            labelOverride="Continue"
+            modalTitleOverride="Continue to DotPay"
+          />
         </div>
+        <p className="text-white/70 text-xs">Secured sign-in. No passwords.</p>
         <p className="text-white/80 text-sm">
-          Already have an account?{" "}
+          I already have an account.{" "}
           <Link href="/login" className="text-white underline underline-offset-2">
             Sign in
           </Link>

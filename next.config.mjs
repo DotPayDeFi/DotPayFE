@@ -88,6 +88,30 @@ const nextConfig = {
         destination: "/home",
         permanent: false,
       },
+      // Compatibility redirects
+      {
+        source: "/receive",
+        destination: "/add-funds",
+        permanent: false,
+      },
+      {
+        source: "/send",
+        has: [{ type: "query", key: "mode", value: "pay" }],
+        destination: "/pay",
+        permanent: false,
+      },
+      {
+        source: "/send",
+        has: [{ type: "query", key: "mode", value: "paybill" }],
+        destination: "/pay/paybill",
+        permanent: false,
+      },
+      {
+        source: "/send",
+        has: [{ type: "query", key: "mode", value: "buygoods" }],
+        destination: "/pay/till",
+        permanent: false,
+      },
     ];
   },
   images: {
