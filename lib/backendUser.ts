@@ -126,6 +126,41 @@ export async function setUserPin(address: string, pin: string, oldPin?: string):
 }
 
 /**
+ * Verify a 6-digit app PIN for the authenticated user.
+ * Throws if invalid or not set.
+ */
+export async function verifyUserPin(address: string, pin: string): Promise<{ valid: true; pinUpdatedAt: string | null }> {
+  if (!isBackendApiConfigured()) {
+    throw new Error("Backend API is not configured.");
+  }
+  const normalizedAddress = address?.trim()?.toLowerCase();
+  if (!normalizedAddress) {
+    throw new Error("address is required.");
+  }
+
+  const res = await fetch(
+    `${BACKEND_PROXY_BASE}/users/${encodeURIComponent(normalizedAddress)}/pin/verify`,
+    {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      cache: "no-store",
+      body: JSON.stringify({ pin }),
+    }
+  );
+
+  const payload = await res.json().catch(() => null);
+  if (!res.ok || !payload?.success) {
+    const message = payload?.message || "Failed to verify PIN.";
+    throw new Error(message);
+  }
+
+  return {
+    valid: true,
+    pinUpdatedAt: payload?.data?.pinUpdatedAt ?? null,
+  };
+}
+
+/**
  * Load a user profile from backend by wallet address.
  */
 export async function getUserFromBackend(address: string): Promise<BackendUserRecord | null> {
