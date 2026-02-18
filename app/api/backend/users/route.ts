@@ -5,11 +5,23 @@ function getBackendUrl() {
   return (process.env.NEXT_PUBLIC_DOTPAY_API_URL || "").trim().replace(/\/+$/, "");
 }
 
+function getInternalKey() {
+  return (process.env.DOTPAY_INTERNAL_API_KEY || "").trim();
+}
+
 export async function POST(request: NextRequest) {
   const backendUrl = getBackendUrl();
   if (!backendUrl) {
     return NextResponse.json(
       { success: false, message: "NEXT_PUBLIC_DOTPAY_API_URL is not configured." },
+      { status: 500 }
+    );
+  }
+
+  const internalKey = getInternalKey();
+  if (!internalKey) {
+    return NextResponse.json(
+      { success: false, message: "DOTPAY_INTERNAL_API_KEY is not configured." },
       { status: 500 }
     );
   }
@@ -33,7 +45,11 @@ export async function POST(request: NextRequest) {
   try {
     const res = await fetch(`${backendUrl}/api/users`, {
       method: "POST",
-      headers: { "Content-Type": "application/json", Accept: "application/json" },
+      headers: {
+        "Content-Type": "application/json",
+        Accept: "application/json",
+        "x-dotpay-internal-key": internalKey,
+      },
       body,
       cache: "no-store",
     });
@@ -49,4 +65,3 @@ export async function POST(request: NextRequest) {
     return NextResponse.json({ success: false, message: "Failed to reach backend users service." }, { status: 502 });
   }
 }
-
