@@ -38,6 +38,9 @@ yarn-error.log*
 .env.local
 .env.vercel
 .env.vercel*
+.env.bak*
+.env.local.bak*
+.env.migrated*
 
 # vercel
 .vercel

@@ -19,10 +19,10 @@ Core user journeys:
 ```bash
 cd /Users/Shared/odero/DotPay/DotPayFE
 npm install
-cp .env.example .env
+cp .env.example .env.local
 ```
 
-Fill values in `.env` (never commit it).
+Fill values in `.env.local` (never commit it).
 
 ## Run Locally (Full Stack)
 
@@ -42,7 +42,7 @@ npm run dev
 
 ```bash
 cd /Users/Shared/odero/DotPay/DotPayFE
-# ensure NEXT_PUBLIC_DOTPAY_API_URL=http://localhost:4000 in .env
+# ensure NEXT_PUBLIC_DOTPAY_API_URL=http://localhost:4000 in .env.local
 npm run dev
 ```
 
@@ -114,5 +114,5 @@ npm start
 
 ## Security Notes
 
-- Do not commit secrets. Keep them in Vercel env vars and local `.env` (gitignored).
+- Do not commit secrets. Keep them in Vercel env vars and local `.env.local` (gitignored).
 - Never put treasury private keys in frontend env vars. Treasury keys belong in the backend only.

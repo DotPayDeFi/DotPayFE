@@ -1,7 +1,8 @@
 import type { SessionUser } from "@/types/session-user";
 
-// Set NEXT_PUBLIC_DOTPAY_API_URL in .env (e.g. http://localhost:4000) so users sync to backend.
+// Set NEXT_PUBLIC_DOTPAY_API_URL in .env.local (e.g. http://localhost:4000) so users sync to backend.
 const API_URL = (process.env.NEXT_PUBLIC_DOTPAY_API_URL || "").trim().replace(/\/+$/, "");
+const BACKEND_PROXY_BASE = "/api/backend";
 
 export type BackendUserRecord = {
   id: string;
@@ -27,7 +28,8 @@ export const isBackendApiConfigured = () => Boolean(API_URL);
 export async function checkBackendConnection(): Promise<boolean> {
   if (!isBackendApiConfigured()) return false;
   try {
-    const res = await fetch(`${API_URL}/health`, { method: "GET", cache: "no-store" });
+    // Use same-origin proxy to avoid CORS issues in production deployments.
+    const res = await fetch(`${BACKEND_PROXY_BASE}/health`, { method: "GET", cache: "no-store" });
     return res.ok;
   } catch {
     return false;
@@ -42,7 +44,8 @@ export async function syncUserToBackend(sessionUser: SessionUser): Promise<boole
   if (!isBackendApiConfigured()) return false;
   if (!sessionUser?.address) return false;
   try {
-    const res = await fetch(`${API_URL}/api/users`, {
+    // Use same-origin proxy to avoid CORS issues in production deployments.
+    const res = await fetch(`${BACKEND_PROXY_BASE}/users`, {
       method: "POST",
       headers: { "Content-Type": "application/json" },
       cache: "no-store",
@@ -88,16 +91,6 @@ const mapBackendUserRecord = (raw: any, fallbackAddress: string): BackendUserRec
   };
 };
 
-async function getBackendBearerToken(): Promise<string> {
-  const res = await fetch("/api/auth/backend-token", { method: "GET", cache: "no-store" });
-  const payload = await res.json().catch(() => null);
-  if (!res.ok || !payload?.success || !payload?.data?.token) {
-    const message = payload?.message || "Failed to mint backend auth token.";
-    throw new Error(message);
-  }
-  return String(payload.data.token);
-}
-
 /**
  * Set (or update) the 6-digit app PIN for the authenticated user.
  */
@@ -110,13 +103,11 @@ export async function setUserPin(address: string, pin: string, oldPin?: string):
     throw new Error("address is required.");
   }
 
-  const token = await getBackendBearerToken();
-
-  const res = await fetch(`${API_URL}/api/users/${encodeURIComponent(normalizedAddress)}/pin`, {
+  // Use same-origin proxy: it will mint the backend bearer token server-side.
+  const res = await fetch(`${BACKEND_PROXY_BASE}/users/${encodeURIComponent(normalizedAddress)}/pin`, {
     method: "PATCH",
     headers: {
       "Content-Type": "application/json",
-      Authorization: `Bearer ${token}`,
     },
     cache: "no-store",
     body: JSON.stringify({ pin, ...(oldPin ? { oldPin } : {}) }),
@@ -143,7 +134,8 @@ export async function getUserFromBackend(address: string): Promise<BackendUserRe
   if (!normalizedAddress) return null;
 
   try {
-    const res = await fetch(`${API_URL}/api/users/${encodeURIComponent(normalizedAddress)}`, {
+    // Use same-origin proxy to avoid CORS issues in production deployments.
+    const res = await fetch(`${BACKEND_PROXY_BASE}/users/${encodeURIComponent(normalizedAddress)}`, {
       method: "GET",
       cache: "no-store",
     });
@@ -182,7 +174,8 @@ export async function lookupUserFromBackend(query: string): Promise<BackendUserR
   if (!q) return null;
 
   try {
-    const res = await fetch(`${API_URL}/api/users/lookup?q=${encodeURIComponent(q)}`, {
+    // Use same-origin proxy to avoid CORS issues in production deployments.
+    const res = await fetch(`${BACKEND_PROXY_BASE}/users/lookup?q=${encodeURIComponent(q)}`, {
       method: "GET",
       cache: "no-store",
     });
@@ -227,7 +220,8 @@ export async function setDotpayIdentity(
   }
 
   try {
-    const res = await fetch(`${API_URL}/api/users/${encodeURIComponent(normalizedAddress)}/identity`, {
+    // Use same-origin proxy to avoid CORS issues in production deployments.
+    const res = await fetch(`${BACKEND_PROXY_BASE}/users/${encodeURIComponent(normalizedAddress)}/identity`, {
       method: "PATCH",
       headers: { "Content-Type": "application/json" },
       cache: "no-store",
