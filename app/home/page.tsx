@@ -3,6 +3,7 @@
 import Image from "next/image";
 import { useCallback, useEffect, useMemo, useState } from "react";
 import { useRouter } from "next/navigation";
+import { useQuery } from "@tanstack/react-query";
 import {
   ArrowDownLeft,
   ArrowUpRight,
@@ -12,12 +13,15 @@ import {
   CreditCard,
   Eye,
   EyeOff,
+  Landmark,
   LogOut,
-  Plus,
   RefreshCw,
+  Send,
   ShieldCheck,
   Sparkles,
+  Store,
   UserCircle2,
+  Wallet,
 } from "lucide-react";
 import toast from "react-hot-toast";
 import { getContract } from "thirdweb";
@@ -43,6 +47,7 @@ import {
   SheetHeader,
   SheetTitle,
 } from "@/components/ui/sheet";
+import { DetailsDisclosure } from "@/components/ui/DetailsDisclosure";
 import { useKesRate } from "@/hooks/useKesRate";
 import { type OnchainTransfer, useOnchainActivity } from "@/hooks/useOnchainActivity";
 import { getDotPayNetwork, getDotPaySupportedChains, getDotPayUsdcChain } from "@/lib/dotpayNetwork";
@@ -51,6 +56,8 @@ import {
   useMarkNotificationRead,
   useNotifications,
 } from "@/hooks/useNotifications";
+import { mpesaClient } from "@/lib/mpesa-client";
+import { MpesaTransaction } from "@/types/mpesa";
 
 // Circle's official USDC (proxy) on Arbitrum Sepolia.
 // Source: Circle "USDC Contract Addresses" docs.
@@ -60,6 +67,7 @@ const USDC_ARBITRUM_SEPOLIA_ADDRESS = "0x75faf114eafb1BDbe2F0316DF893fd58CE46AA4
 const USDC_ARBITRUM_ONE_ADDRESS = "0xaf88d065e77c8cC2239327C5EDb3A432268e5831" as const;
 
 const ZERO_ADDRESS = "0x0000000000000000000000000000000000000000" as const;
+const HIDE_BALANCES_KEY = "dotpay_hide_balances";
 
 const formatCurrency = (value: number, currency: "USD" | "KES" = "USD") =>
   new Intl.NumberFormat("en-US", {
@@ -105,7 +113,7 @@ const formatKesNumber = (value: number, maximumFractionDigits: number = 2) =>
     maximumFractionDigits,
   }).format(value);
 
-const formatKes = (value: number) => `KES ${formatKesNumber(value, 0)}`;
+const formatKes = (value: number) => `KSh ${formatKesNumber(value, 0)}`;
 
 const formatUsdc = (value: number) =>
   new Intl.NumberFormat("en-US", {
@@ -115,12 +123,14 @@ const formatUsdc = (value: number) =>
 
 type ActivityItem = {
   id: string;
+  kind: "mpesa" | "transfer";
   title: string;
   subtitle: string;
   amountText: string;
   direction: "+" | "-";
   status: "completed" | "pending" | "processing" | "failed" | "unknown";
   createdAt: string | null;
+  snapshot?: any;
 };
 
 const unitsToNumber = (value: string, decimals: number): number | null => {
@@ -175,14 +185,72 @@ const activityFromTransfer = (
 
   return {
     id: transfer.hash || `${transfer.blockNumber}:${transfer.timeStamp}`,
+    kind: "transfer",
     title,
     subtitle,
     amountText,
     direction,
     status: "completed",
     createdAt,
+    snapshot: { kind: "transfer", transfer, kesPerUsd: typeof kesPerUsd === "number" ? kesPerUsd : undefined },
   };
 };
+
+function statusFromMpesa(tx: MpesaTransaction): ActivityItem["status"] {
+  if (tx.status === "succeeded") return "completed";
+  if (tx.status === "failed") return "failed";
+  if (tx.status === "refunded") return "completed";
+  return "processing";
+}
+
+function maskPhone(phone: string) {
+  const digits = String(phone || "").replace(/[^0-9]/g, "");
+  if (digits.length < 7) return phone;
+  return `${digits.slice(0, 4)}***${digits.slice(-3)}`;
+}
+
+function titleFromMpesa(tx: MpesaTransaction) {
+  if (tx.flowType === "onramp") return "Top up";
+  if (tx.flowType === "offramp") return "Cash out";
+  if (tx.flowType === "paybill") return "PayBill";
+  return "Till payment";
+}
+
+function subtitleFromMpesa(tx: MpesaTransaction) {
+  if (tx.flowType === "onramp") {
+    return tx.targets.phoneNumber ? `From M-Pesa ${maskPhone(tx.targets.phoneNumber)}` : "From M-Pesa";
+  }
+  if (tx.flowType === "offramp") {
+    return tx.targets.phoneNumber ? `To M-Pesa ${maskPhone(tx.targets.phoneNumber)}` : "To M-Pesa";
+  }
+  if (tx.flowType === "paybill") {
+    const pb = tx.targets.paybillNumber ? `PayBill ${tx.targets.paybillNumber}` : "PayBill";
+    const ref = tx.targets.accountReference ? `Ref ${tx.targets.accountReference}` : null;
+    return [pb, ref].filter(Boolean).join(" · ");
+  }
+  const till = tx.targets.tillNumber ? `Till ${tx.targets.tillNumber}` : "Till";
+  const ref = tx.targets.accountReference ? tx.targets.accountReference : null;
+  return [till, ref].filter(Boolean).join(" · ");
+}
+
+function activityFromMpesa(tx: MpesaTransaction): ActivityItem {
+  const isCredit = tx.flowType === "onramp";
+  const direction: ActivityItem["direction"] = isCredit ? "+" : "-";
+  const amount = isCredit ? tx.quote.expectedReceiveKes : tx.quote.totalDebitKes;
+  const amountText = `${direction}${formatKes(amount)}`;
+
+  return {
+    id: tx.transactionId,
+    kind: "mpesa",
+    title: titleFromMpesa(tx),
+    subtitle: subtitleFromMpesa(tx),
+    amountText,
+    direction,
+    status: statusFromMpesa(tx),
+    createdAt: tx.updatedAt || tx.createdAt || null,
+    snapshot: { kind: "mpesa", tx },
+  };
+}
 
 const StatusPill = ({ status }: { status: ActivityItem["status"] }) => {
   const label =
@@ -236,16 +304,19 @@ function BlurredValue({
 
 export default function HomePage() {
   const router = useRouter();
-  const { address, sessionUser, logout } = useAuthSession();
+  const { address, sessionUser } = useAuthSession();
 
   const dotpayNetwork = getDotPayNetwork();
   const network = dotpayNetwork;
 
-  const [sheetOpen, setSheetOpen] = useState(false);
   const [notificationsOpen, setNotificationsOpen] = useState(false);
   const [hideBalances, setHideBalances] = useState(false);
-  const [loggingOut, setLoggingOut] = useState(false);
   const [showReconnectCta, setShowReconnectCta] = useState(false);
+
+  useEffect(() => {
+    if (typeof window === "undefined") return;
+    setHideBalances(window.localStorage.getItem(HIDE_BALANCES_KEY) === "1");
+  }, []);
 
   const backendConfigured = isBackendApiConfigured();
   const profileAddress = useMemo(() => sessionUser?.address || address || null, [address, sessionUser?.address]);
@@ -311,18 +382,43 @@ export default function HomePage() {
     limit: 12,
   });
 
+  const mpesaRecentQuery = useQuery<MpesaTransaction[]>({
+    queryKey: ["mpesa", "transactions", "home", 10],
+    enabled: backendConfigured,
+    queryFn: async () => {
+      const res = await mpesaClient.listTransactions({ limit: 10 });
+      const txs = res?.data?.transactions;
+      return Array.isArray(txs) ? txs : [];
+    },
+    staleTime: 15 * 1000,
+    retry: 1,
+  });
+
   const activity = useMemo(() => {
-    if (!profileAddress) return [];
-    const transfers = activityQuery.data ?? [];
-    return transfers
-      .slice(0, 8)
-      .map((t) => activityFromTransfer(t, profileAddress, kesPerUsd))
+    const out: ActivityItem[] = [];
+
+    if (backendConfigured && Array.isArray(mpesaRecentQuery.data)) {
+      for (const tx of mpesaRecentQuery.data) {
+        out.push(activityFromMpesa(tx));
+      }
+    }
+
+    if (profileAddress && Array.isArray(activityQuery.data)) {
+      for (const t of activityQuery.data) {
+        // Onchain transfers typically include a hash; skip anything that can't render a receipt.
+        if (!t?.hash) continue;
+        out.push(activityFromTransfer(t, profileAddress, kesPerUsd));
+      }
+    }
+
+    return out
       .sort((a, b) => {
         const at = a.createdAt ? new Date(a.createdAt).getTime() : 0;
         const bt = b.createdAt ? new Date(b.createdAt).getTime() : 0;
         return bt - at;
-      });
-  }, [activityQuery.data, kesPerUsd, profileAddress]);
+      })
+      .slice(0, 5);
+  }, [activityQuery.data, backendConfigured, kesPerUsd, mpesaRecentQuery.data, profileAddress]);
 
   const chain = getDotPayUsdcChain(dotpayNetwork);
   const usdcAddress = dotpayNetwork === "sepolia" ? USDC_ARBITRUM_SEPOLIA_ADDRESS : USDC_ARBITRUM_ONE_ADDRESS;
@@ -370,7 +466,7 @@ export default function HomePage() {
     sessionUser?.email?.split("@")[0] ||
     sessionUser?.phone ||
     "there";
-  const greeting = `${getTimeGreeting()}, ${greetingName}`;
+  const greetingPrefix = getTimeGreeting();
 
   const dotpayId = useMemo(() => {
     const value = backendUser?.dotpayId;
@@ -423,7 +519,7 @@ export default function HomePage() {
         appMetadata: {
           name: "DotPay",
           url: "https://app.dotpay.xyz",
-          description: "Stablecoin wallet for fast crypto payments.",
+          description: "Mobile wallet for fast payments and clear receipts.",
           logoUrl: "https://app.dotpay.xyz/icons/icon-192x192.png",
         },
         theme: "dark",
@@ -442,43 +538,31 @@ export default function HomePage() {
     refetchKesRate();
     loadBackendProfile({ syncIfMissing: true });
     activityQuery.refetch();
-  }, [activityQuery, loadBackendProfile, refetchKesRate, refetchUsdcBalance]);
+    if (backendConfigured) {
+      mpesaRecentQuery.refetch();
+    }
+  }, [
+    activityQuery.refetch,
+    backendConfigured,
+    loadBackendProfile,
+    mpesaRecentQuery.refetch,
+    refetchKesRate,
+    refetchUsdcBalance,
+  ]);
 
-  const handleLogout = useCallback(async () => {
-    setLoggingOut(true);
-    try {
-      await logout();
-      window.location.replace("/onboarding");
-    } finally {
-      setLoggingOut(false);
-    }
-  }, [logout]);
-
-  const copyAddress = useCallback(async () => {
-    if (!profileAddress) return;
-    try {
-      await navigator.clipboard.writeText(profileAddress);
-      toast.success("Address copied");
-    } catch {
-      toast.error("Unable to copy");
-    }
-  }, [profileAddress]);
-
-  const handleQuickAction = (action: "send" | "receive" | "pay" | "topup") => {
-    if (action === "send") {
-      router.push("/send");
-      return;
-    }
-    if (action === "receive") {
-      router.push("/receive");
-      return;
-    }
-    if (action === "pay") {
-      toast("Bill pay flow will be reconnected next.");
-      return;
-    }
-    toast("Top up flow will be reconnected next.");
-  };
+  const handleOpenReceipt = useCallback(
+    (item: ActivityItem) => {
+      try {
+        if (typeof window !== "undefined" && item.snapshot) {
+          window.sessionStorage.setItem(`activity:${item.id}`, JSON.stringify(item.snapshot));
+        }
+      } catch {
+        // ignore
+      }
+      router.push(`/activity/${encodeURIComponent(item.id)}`);
+    },
+    [router]
+  );
 
   const notificationsQuery = useNotifications({ limit: 25, enabled: backendConfigured });
   const markAllRead = useMarkAllNotificationsRead();
@@ -488,16 +572,16 @@ export default function HomePage() {
 
   return (
     <AuthGuard redirectTo="/onboarding">
-      <main className="app-background !h-auto min-h-screen px-4 pb-24 pt-6 text-white !items-stretch !justify-start">
+      <main className="app-background !h-auto min-h-screen px-4 pb-8 pt-6 text-white !items-stretch !justify-start">
         <section className="mx-auto w-full max-w-5xl space-y-4">
-          <header className="flex items-center justify-between gap-3">
-            <div className="flex min-w-0 items-center gap-3">
-              <DotPayLogo size={28} className="shrink-0" />
+          <header className="flex items-start justify-between gap-3">
+            <div className="flex min-w-0 items-start gap-3">
+              <DotPayLogo size={30} className="mt-0.5 shrink-0" />
               <div className="min-w-0">
-                <p className="text-[11px] uppercase tracking-[0.24em] text-cyan-200/80">
-                  DotPay
+                <p className="text-[11px] uppercase tracking-[0.24em] text-white/55">{greetingPrefix}</p>
+                <p className="mt-0.5 whitespace-normal break-words text-base font-semibold text-white">
+                  {greetingName}
                 </p>
-                <p className="mt-0.5 truncate text-sm text-white/75">{greeting}</p>
               </div>
             </div>
 
@@ -515,9 +599,9 @@ export default function HomePage() {
               </button>
               <button
                 type="button"
-                onClick={() => setSheetOpen(true)}
+                onClick={() => router.push("/settings")}
                 className="rounded-2xl border border-cyan-300/35 bg-cyan-500/10 p-2.5 hover:bg-cyan-500/20"
-                aria-label="Account"
+                aria-label="Settings"
               >
                 <UserCircle2 className="h-5 w-5" />
               </button>
@@ -603,9 +687,10 @@ export default function HomePage() {
                   <div className="mt-3 flex flex-col gap-1.5 text-xs text-white/70 sm:flex-row sm:items-center sm:justify-between">
                     <div className="flex items-center gap-2">
                       {typeof totalUsd === "number" ? (
-                        <span>
+                        <span className="inline-flex items-center gap-2">
+                          <span className="text-white/55">USD balance</span>
                           <BlurredValue hidden={hideBalances}>
-                            {formatUsdc(totalUsd)} USDC
+                            <span className="text-white/80">{formatUsdc(totalUsd)} USD</span>
                           </BlurredValue>
                         </span>
                       ) : usdcBalanceError ? (
@@ -620,8 +705,12 @@ export default function HomePage() {
                     <div className="flex items-center gap-2">
                       {typeof kesPerUsd === "number" ? (
                         <>
-                          <span className="text-white/55">Rate</span>
-                          <span>1 USDC ≈ KES {formatKesNumber(kesPerUsd, 2)}</span>
+                          <span className="text-white/55">Exchange rate</span>
+                          <BlurredValue hidden={hideBalances}>
+                            <span className="text-white/80">
+                              1 USD ≈ KSh {formatKesNumber(kesPerUsd, 2)}
+                            </span>
+                          </BlurredValue>
                         </>
                       ) : kesRateLoading ? (
                         <span className="text-white/60">Updating rate…</span>
@@ -630,13 +719,48 @@ export default function HomePage() {
                       )}
                     </div>
                   </div>
+
+                  <DetailsDisclosure label="Details" className="mt-4 bg-black/20">
+                    <div className="space-y-2 text-xs">
+                      <div className="flex items-center justify-between gap-3">
+                        <span className="text-white/65">Token</span>
+                        <span className="text-white/80">USDC</span>
+                      </div>
+                      <div className="flex items-center justify-between gap-3">
+                        <span className="text-white/65">USDC balance</span>
+                        <span className="text-white/80">
+                          <BlurredValue hidden={hideBalances}>
+                            {typeof totalUsd === "number" ? `${formatUsdc(totalUsd)} USDC` : "—"}
+                          </BlurredValue>
+                        </span>
+                      </div>
+                      <div className="flex items-center justify-between gap-3">
+                        <span className="text-white/65">Network</span>
+                        <span className="text-white/80">
+                          {dotpayNetwork === "sepolia" ? "Arbitrum Sepolia" : "Arbitrum One"}
+                        </span>
+                      </div>
+                      <div className="flex items-center justify-between gap-3">
+                        <span className="text-white/65">Contract</span>
+                        <span className="font-mono text-white/80">{shortAddress(usdcAddress)}</span>
+                      </div>
+                    </div>
+                  </DetailsDisclosure>
                 </div>
               </div>
 
               <div className="flex items-center gap-2">
                 <button
                   type="button"
-                  onClick={() => setHideBalances((v) => !v)}
+                  onClick={() =>
+                    setHideBalances((v) => {
+                      const next = !v;
+                      if (typeof window !== "undefined") {
+                        window.localStorage.setItem(HIDE_BALANCES_KEY, next ? "1" : "0");
+                      }
+                      return next;
+                    })
+                  }
                   className="rounded-2xl border border-white/15 bg-white/5 p-2.5 hover:bg-white/10"
                   aria-label={hideBalances ? "Show balances" : "Hide balances"}
                 >
@@ -651,7 +775,11 @@ export default function HomePage() {
                   <RefreshCw
                     className={cn(
                       "h-5 w-5",
-                      usdcBalanceFetching || kesRateFetching || backendStatus === "loading" || activityQuery.isFetching
+                      usdcBalanceFetching ||
+                        kesRateFetching ||
+                        backendStatus === "loading" ||
+                        activityQuery.isFetching ||
+                        (backendConfigured && mpesaRecentQuery.isFetching)
                         ? "animate-spin"
                         : ""
                     )}
@@ -660,62 +788,92 @@ export default function HomePage() {
               </div>
             </div>
 
-            <div className="relative mt-6 grid grid-cols-2 gap-3 md:grid-cols-4">
-              {(
-                [
-                  {
-                    id: "send" as const,
-                    label: "Send",
-                    hint: "Transfer money",
-                    icon: <ArrowUpRight className="h-5 w-5" />,
-                    onClick: () => handleQuickAction("send"),
-                  },
-                  {
-                    id: "receive" as const,
-                    label: "Receive",
-                    hint: "Request payment",
-                    icon: <ArrowDownLeft className="h-5 w-5" />,
-                    onClick: () => handleQuickAction("receive"),
-                  },
-                  {
-                    id: "pay" as const,
-                    label: "Pay bills",
-                    hint: "Utilities, merchants",
-                    icon: <CreditCard className="h-5 w-5" />,
-                    onClick: () => handleQuickAction("pay"),
-                  },
-                  {
-                    id: "topup" as const,
-                    label: "Top up",
-                    hint: "Add funds",
-                    icon: <Plus className="h-5 w-5" />,
-                    onClick: () => handleQuickAction("topup"),
-                  },
-                ] as const
-              ).map((action) => (
-                <button
-                  key={action.id}
-                  type="button"
-                  onClick={action.onClick}
-                  className="group relative overflow-hidden rounded-2xl border border-white/10 bg-black/25 p-4 text-left hover:bg-black/35"
-                >
-                  <div className="flex items-start justify-between gap-3">
-                    <div className="rounded-xl border border-white/10 bg-white/5 p-2 text-cyan-100">
-                      {action.icon}
-                    </div>
-                    <ChevronRight className="h-4 w-4 text-white/35 transition group-hover:translate-x-0.5 group-hover:text-white/50" />
-                  </div>
-                  <p className="mt-3 text-sm font-semibold">{action.label}</p>
-                  <p className="mt-1 text-xs text-white/65">{action.hint}</p>
-                  <div className="pointer-events-none absolute inset-0 opacity-0 transition group-hover:opacity-100">
-                    <div className="absolute -left-10 -top-10 h-28 w-28 rounded-full bg-cyan-400/10 blur-2xl" />
-                  </div>
-                </button>
-              ))}
-            </div>
           </article>
 
           <div className="grid grid-cols-1 gap-4">
+            <article className="rounded-2xl border border-white/10 bg-black/30 p-5">
+              <div className="flex items-center justify-between gap-3">
+                <div>
+                  <p className="text-[11px] uppercase tracking-[0.24em] text-white/60">
+                    Quick actions
+                  </p>
+                  <h2 className="mt-1 text-lg font-semibold">Shortcuts</h2>
+                </div>
+              </div>
+
+              <div className="mt-4 grid grid-cols-3 gap-3">
+                {(
+                  [
+                    {
+                      id: "cashout",
+                      label: "Cash out",
+                      hint: "To M-Pesa",
+                      icon: <ArrowUpRight className="h-6 w-6" />,
+                      onClick: () => router.push("/send?mode=cashout"),
+                      tone:
+                        "border-emerald-300/20 bg-emerald-500/10 text-emerald-100 hover:bg-emerald-500/15",
+                    },
+                    {
+                      id: "topup",
+                      label: "Top up",
+                      hint: "From M-Pesa",
+                      icon: <ArrowDownLeft className="h-6 w-6" />,
+                      onClick: () => router.push("/add-funds?tab=topup"),
+                      tone: "border-cyan-300/25 bg-cyan-500/10 text-cyan-100 hover:bg-cyan-500/15",
+                    },
+                    {
+                      id: "send_dotpay",
+                      label: "Send",
+                      hint: "Via DotPay",
+                      icon: <Wallet className="h-6 w-6" />,
+                      onClick: () => router.push("/send?kind=dotpay"),
+                      tone: "border-white/10 bg-white/5 text-white/85 hover:bg-white/10",
+                    },
+                    {
+                      id: "paybill",
+                      label: "PayBill",
+                      hint: "Bills",
+                      icon: <Landmark className="h-6 w-6" />,
+                      onClick: () => router.push("/pay/paybill"),
+                      tone: "border-white/10 bg-white/5 text-white/85 hover:bg-white/10",
+                    },
+                    {
+                      id: "till",
+                      label: "Till",
+                      hint: "Buy goods",
+                      icon: <Store className="h-6 w-6" />,
+                      onClick: () => router.push("/pay/till"),
+                      tone: "border-white/10 bg-white/5 text-white/85 hover:bg-white/10",
+                    },
+                    {
+                      id: "request",
+                      label: "Request",
+                      hint: "Get paid",
+                      icon: <Send className="h-6 w-6" />,
+                      onClick: () => router.push("/add-funds?tab=request"),
+                      tone: "border-white/10 bg-white/5 text-white/85 hover:bg-white/10",
+                    },
+                  ] as const
+                ).map((a) => (
+                  <button
+                    key={a.id}
+                    type="button"
+                    onClick={a.onClick}
+                    className={cn(
+                      "rounded-2xl border p-3 text-left transition",
+                      a.tone
+                    )}
+                  >
+                    <div className="rounded-2xl border border-white/10 bg-black/20 p-2.5">
+                      {a.icon}
+                    </div>
+                    <p className="mt-3 text-sm font-semibold text-white">{a.label}</p>
+                    <p className="mt-1 text-[11px] text-white/65">{a.hint}</p>
+                  </button>
+                ))}
+              </div>
+            </article>
+
             <article className="rounded-2xl border border-white/10 bg-black/30 p-5">
               <div className="flex items-center justify-between gap-3">
                 <div>
@@ -724,17 +882,36 @@ export default function HomePage() {
                   </p>
                   <h2 className="mt-1 text-lg font-semibold">Recent</h2>
                 </div>
-                <button
-                  type="button"
-                  onClick={() => activityQuery.refetch()}
-                  className="inline-flex items-center gap-2 rounded-xl border border-white/15 bg-white/5 px-3 py-2 text-xs font-semibold text-white/80 hover:bg-white/10"
-                >
-                  <RefreshCw className={cn("h-4 w-4", activityQuery.isFetching ? "animate-spin" : "")} />
-                  Refresh
-                </button>
+                <div className="flex items-center gap-2">
+                  <button
+                    type="button"
+                    onClick={() => router.push("/activity")}
+                    className="inline-flex items-center gap-2 rounded-xl border border-cyan-300/35 bg-cyan-500/10 px-3 py-2 text-xs font-semibold text-cyan-50 hover:bg-cyan-500/20"
+                  >
+                    View all
+                  </button>
+                  <button
+                    type="button"
+                    onClick={() => {
+                      activityQuery.refetch();
+                      if (backendConfigured) mpesaRecentQuery.refetch();
+                    }}
+                    className="inline-flex items-center gap-2 rounded-xl border border-white/15 bg-white/5 px-3 py-2 text-xs font-semibold text-white/80 hover:bg-white/10"
+                  >
+                    <RefreshCw
+                      className={cn(
+                        "h-4 w-4",
+                        activityQuery.isFetching || (backendConfigured && mpesaRecentQuery.isFetching)
+                          ? "animate-spin"
+                          : ""
+                      )}
+                    />
+                    Refresh
+                  </button>
+                </div>
               </div>
 
-              {activityQuery.isLoading && activity.length === 0 && (
+              {(activityQuery.isLoading || (backendConfigured && mpesaRecentQuery.isLoading)) && activity.length === 0 && (
                 <div className="mt-4 space-y-2">
                   <Skeleton className="h-14 w-full" />
                   <Skeleton className="h-14 w-full" />
@@ -742,17 +919,22 @@ export default function HomePage() {
                 </div>
               )}
 
-              {activityQuery.isError && (
+              {(activityQuery.isError || mpesaRecentQuery.isError) && (
                 <div className="mt-4 rounded-2xl border border-amber-300/25 bg-amber-500/10 p-4">
-                  <p className="text-sm font-semibold text-amber-100">Activity unavailable</p>
+                  <p className="text-sm font-semibold text-amber-100">Some activity is unavailable</p>
                   <p className="mt-1 text-xs text-amber-100/80">
                     {activityQuery.error instanceof Error
                       ? activityQuery.error.message
-                      : "Please try again."}
+                      : mpesaRecentQuery.error instanceof Error
+                        ? mpesaRecentQuery.error.message
+                        : "Please try again."}
                   </p>
                   <button
                     type="button"
-                    onClick={() => activityQuery.refetch()}
+                    onClick={() => {
+                      activityQuery.refetch();
+                      if (backendConfigured) mpesaRecentQuery.refetch();
+                    }}
                     className="mt-3 inline-flex items-center gap-2 rounded-xl border border-white/15 bg-white/5 px-3 py-2 text-xs font-semibold text-white/90 hover:bg-white/10"
                   >
                     <RefreshCw className="h-4 w-4" />
@@ -761,7 +943,15 @@ export default function HomePage() {
                 </div>
               )}
 
-              {!activityQuery.isLoading && !activityQuery.isError && activity.length === 0 && (
+              {!(
+                activityQuery.isLoading ||
+                (backendConfigured && mpesaRecentQuery.isLoading)
+              ) &&
+                !(
+                  activityQuery.isError ||
+                  (backendConfigured && mpesaRecentQuery.isError)
+                ) &&
+                activity.length === 0 && (
                 <p className="mt-4 text-sm text-white/70">
                   No recent activity yet.
                 </p>
@@ -770,9 +960,11 @@ export default function HomePage() {
               {activity.length > 0 && (
                 <div className="mt-4 space-y-2">
                   {activity.map((item) => (
-                    <div
+                    <button
                       key={item.id}
-                      className="flex items-center justify-between gap-3 rounded-2xl border border-white/10 bg-white/5 p-4"
+                      type="button"
+                      onClick={() => handleOpenReceipt(item)}
+                      className="flex w-full items-center justify-between gap-3 rounded-2xl border border-white/10 bg-white/5 p-4 text-left hover:bg-white/10"
                     >
                       <div className="min-w-0">
                         <div className="flex items-center gap-2">
@@ -789,7 +981,7 @@ export default function HomePage() {
                       >
                         <BlurredValue hidden={hideBalances}>{item.amountText}</BlurredValue>
                       </p>
-                    </div>
+                    </button>
                   ))}
                 </div>
               )}
@@ -909,95 +1101,6 @@ export default function HomePage() {
                   })}
                 </div>
               )}
-            </div>
-          </SheetContent>
-        </Sheet>
-
-        <Sheet open={sheetOpen} onOpenChange={setSheetOpen}>
-          <SheetContent
-            side="bottom"
-            className="border border-white/10 bg-[#0d141b] text-white sm:mx-auto sm:max-w-2xl sm:rounded-t-2xl"
-          >
-            <SheetHeader className="text-left">
-              <SheetTitle className="text-white">Account</SheetTitle>
-              <SheetDescription className="text-white/65">
-                Security, identity, and session details.
-              </SheetDescription>
-            </SheetHeader>
-
-            <div className="mt-5 space-y-4">
-              {!backendConfigured && (
-                <p className="rounded-xl border border-amber-300/25 bg-amber-500/10 px-3 py-2 text-xs text-amber-100">
-                  Profile sync is disabled because the backend API is not configured.
-                </p>
-              )}
-
-              {backendStatus === "error" && backendError && (
-                <p className="rounded-xl border border-amber-300/25 bg-amber-500/10 px-3 py-2 text-xs text-amber-100">
-                  {backendError}
-                </p>
-              )}
-
-              <div className="grid grid-cols-1 gap-2 sm:grid-cols-2">
-                <div className="rounded-xl border border-white/10 bg-white/5 p-3">
-                  <p className="text-[11px] uppercase tracking-[0.24em] text-white/50">
-                    Username (confirmation)
-                  </p>
-                  <p className="mt-1 text-sm font-semibold">
-                    {backendStatus === "loading" ? "Loading…" : backendUser?.username ? `@${backendUser.username}` : "Not set"}
-                  </p>
-                </div>
-                <div className="rounded-xl border border-white/10 bg-white/5 p-3">
-                  <p className="text-[11px] uppercase tracking-[0.24em] text-white/50">
-                    DotPay ID
-                  </p>
-                  <p className="mt-1 text-sm font-semibold">
-                    {backendStatus === "loading" ? "Loading…" : backendUser?.dotpayId || "Not provisioned"}
-                  </p>
-                </div>
-                <div className="rounded-xl border border-white/10 bg-white/5 p-3 sm:col-span-2">
-                  <div className="flex items-start justify-between gap-3">
-                    <div className="min-w-0">
-                      <p className="text-[11px] uppercase tracking-[0.24em] text-white/50">
-                        Address
-                      </p>
-                      <p className="mt-1 truncate font-mono text-xs text-white/80">
-                        {profileAddress || "Not available"}
-                      </p>
-                    </div>
-                    <button
-                      type="button"
-                      onClick={copyAddress}
-                      disabled={!profileAddress}
-                      className="inline-flex items-center gap-2 rounded-xl border border-white/15 bg-white/5 px-3 py-2 text-xs font-semibold text-white/80 hover:bg-white/10 disabled:opacity-60"
-                    >
-                      <Copy className="h-4 w-4" />
-                      Copy
-                    </button>
-                  </div>
-                </div>
-              </div>
-
-              {(backendConfigured && Boolean(profileAddress) && (!dotpayId || !backendUser?.username)) && (
-                <button
-                  type="button"
-                  onClick={() => router.push("/onboarding/identity")}
-                  className="inline-flex w-full items-center justify-center gap-2 rounded-xl border border-cyan-300/40 bg-cyan-500/15 px-4 py-3 text-sm font-semibold text-cyan-50 hover:bg-cyan-500/25"
-                >
-                  <Sparkles className="h-4 w-4" />
-                  {dotpayId ? "Add username" : "Activate DotPay ID"}
-                </button>
-              )}
-
-              <button
-                type="button"
-                onClick={handleLogout}
-                disabled={loggingOut}
-                className="inline-flex w-full items-center justify-center gap-2 rounded-xl border border-red-300/40 bg-red-500/10 px-4 py-3 text-sm font-semibold text-red-100 hover:bg-red-500/20 disabled:opacity-60"
-              >
-                <LogOut className="h-4 w-4" />
-                {loggingOut ? "Signing out…" : "Sign out"}
-              </button>
             </div>
           </SheetContent>
         </Sheet>

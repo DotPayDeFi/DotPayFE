@@ -65,6 +65,13 @@ export default function DotpayIdentityOnboardingPage() {
         profile = await getUserFromBackend(walletAddress);
       }
 
+      if (profile && !profile.pinSet) {
+        if (typeof window !== "undefined") {
+          window.location.assign("/onboarding/pin");
+        }
+        return;
+      }
+
       if (profile?.username) {
         redirectToHome();
         return;
@@ -87,7 +94,7 @@ export default function DotpayIdentityOnboardingPage() {
   const handleSubmit = async (event: FormEvent<HTMLFormElement>) => {
     event.preventDefault();
     if (!walletAddress) {
-      setError("Wallet not detected. Please reconnect and try again.");
+      setError("Account not detected. Please reconnect and try again.");
       return;
     }
 
@@ -106,7 +113,7 @@ export default function DotpayIdentityOnboardingPage() {
 
     try {
       const updated = await setDotpayIdentity(walletAddress, resolvedUsername);
-      toast.success(`Welcome @${updated.username}!`);
+      toast.success("Confirmation name saved");
       // Use a hard redirect so this step reliably exits even when app-router state is stale.
       redirectToHome();
     } catch (err) {
@@ -132,7 +139,7 @@ export default function DotpayIdentityOnboardingPage() {
     return (
       <AuthHandoff
         variant="onboarding"
-        title="Setting up your DotPay identity"
+        title="Setting up your DotPay account"
         subtitle={
           !walletAddress
             ? "Finalizing secure sign-in..."
@@ -174,15 +181,16 @@ export default function DotpayIdentityOnboardingPage() {
     <main className="app-background min-h-screen px-4 py-8 text-white">
       <section className="mx-auto w-full max-w-xl rounded-2xl border border-white/10 bg-black/40 p-6">
         <p className="text-xs uppercase tracking-[0.2em] text-cyan-200/80">Step 2 of 2</p>
-        <h1 className="mt-2 text-2xl font-bold">Choose your username</h1>
+        <h1 className="mt-2 text-2xl font-bold">Choose your confirmation name</h1>
         <p className="mt-2 text-sm text-white/75">
-          Usernames are for confirmation and in-app display. Payments use your DotPay ID (DP...), which we generate after you set this.
+          We’ll show this name before you send money so you can confirm it’s the right person.
+          Your DotPay ID (DP...) is your account ID for transfers.
         </p>
 
         <form className="mt-6 space-y-4" onSubmit={handleSubmit}>
           <div>
             <label htmlFor="dotpay-username" className="mb-2 block text-sm font-medium">
-              Username
+              Confirmation name
             </label>
             <div className="flex items-center rounded-xl border border-white/15 bg-white/5 px-3">
               <span className="text-sm text-white/60">@</span>
@@ -199,7 +207,7 @@ export default function DotpayIdentityOnboardingPage() {
               />
             </div>
             <p className="mt-2 text-xs text-white/60">
-              Use 3-20 characters: lowercase letters, numbers, and underscore. This username is not used as a payment input.
+              Use 3-20 characters: lowercase letters, numbers, and underscore.
             </p>
           </div>
 

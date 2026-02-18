@@ -13,6 +13,8 @@ export type BackendUserRecord = {
   dotpayId: string | null;
   authMethod: SessionUser["authMethod"];
   thirdwebCreatedAt: string | null;
+  pinSet: boolean;
+  pinUpdatedAt: string | null;
   createdAt: string | null;
   updatedAt: string | null;
 };
@@ -79,10 +81,58 @@ const mapBackendUserRecord = (raw: any, fallbackAddress: string): BackendUserRec
     dotpayId: raw?.dotpayId ?? null,
     authMethod: raw?.authMethod ?? null,
     thirdwebCreatedAt: raw?.thirdwebCreatedAt ?? null,
+    pinSet: Boolean(raw?.pinSet),
+    pinUpdatedAt: raw?.pinUpdatedAt ?? null,
     createdAt: raw?.createdAt ?? null,
     updatedAt: raw?.updatedAt ?? null,
   };
 };
+
+async function getBackendBearerToken(): Promise<string> {
+  const res = await fetch("/api/auth/backend-token", { method: "GET", cache: "no-store" });
+  const payload = await res.json().catch(() => null);
+  if (!res.ok || !payload?.success || !payload?.data?.token) {
+    const message = payload?.message || "Failed to mint backend auth token.";
+    throw new Error(message);
+  }
+  return String(payload.data.token);
+}
+
+/**
+ * Set (or update) the 6-digit app PIN for the authenticated user.
+ */
+export async function setUserPin(address: string, pin: string, oldPin?: string): Promise<{ pinSet: boolean; pinUpdatedAt: string | null }> {
+  if (!isBackendApiConfigured()) {
+    throw new Error("Backend API is not configured.");
+  }
+  const normalizedAddress = address?.trim()?.toLowerCase();
+  if (!normalizedAddress) {
+    throw new Error("address is required.");
+  }
+
+  const token = await getBackendBearerToken();
+
+  const res = await fetch(`${API_URL}/api/users/${encodeURIComponent(normalizedAddress)}/pin`, {
+    method: "PATCH",
+    headers: {
+      "Content-Type": "application/json",
+      Authorization: `Bearer ${token}`,
+    },
+    cache: "no-store",
+    body: JSON.stringify({ pin, ...(oldPin ? { oldPin } : {}) }),
+  });
+
+  const payload = await res.json().catch(() => null);
+  if (!res.ok || !payload?.success) {
+    const message = payload?.message || "Failed to set PIN.";
+    throw new Error(message);
+  }
+
+  return {
+    pinSet: Boolean(payload?.data?.pinSet),
+    pinUpdatedAt: payload?.data?.pinUpdatedAt ?? null,
+  };
+}
 
 /**
  * Load a user profile from backend by wallet address.

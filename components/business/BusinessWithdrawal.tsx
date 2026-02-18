@@ -3,16 +3,17 @@
 import React, { useState } from 'react';
 import { useBusiness } from '@/context/BusinessContext';
 import { useBusinessFinance } from '@/hooks/useBusinessFinance';
+import { useMpesaFlows } from '@/hooks/useMpesaFlows';
+import { MpesaTransaction } from '@/types/mpesa';
 import { Button } from '@/components/ui/button';
 import { useToast } from '@/components/ui/use-toast';
 import { 
   ArrowUpRight, 
   Smartphone, 
   Wallet, 
-  CreditCard,
   AlertCircle,
-  CheckCircle,
-  Loader2
+  Loader2,
+  RefreshCw
 } from 'lucide-react';
 
 interface BusinessWithdrawalProps {
@@ -30,6 +31,7 @@ export const BusinessWithdrawal: React.FC<BusinessWithdrawalProps> = ({ onSucces
     withdrawToMpesa,
     getBusinessBalance
   } = useBusinessFinance();
+  const { getTransaction, pollTransaction } = useMpesaFlows();
 
   const [activeTab, setActiveTab] = useState<'personal' | 'mpesa'>('personal');
   const [amount, setAmount] = useState('');
@@ -37,6 +39,8 @@ export const BusinessWithdrawal: React.FC<BusinessWithdrawalProps> = ({ onSucces
   const [chain, setChain] = useState('arbitrum');
   const [phoneNumber, setPhoneNumber] = useState('');
   const [isSubmitting, setIsSubmitting] = useState(false);
+  const [mpesaTransaction, setMpesaTransaction] = useState<MpesaTransaction | null>(null);
+  const [refreshingMpesa, setRefreshingMpesa] = useState(false);
 
   // Load balance when component mounts
   React.useEffect(() => {
@@ -132,6 +136,7 @@ export const BusinessWithdrawal: React.FC<BusinessWithdrawalProps> = ({ onSucces
       });
 
       if (result) {
+        setMpesaTransaction(result.transaction);
         toast({
           title: "Withdrawal Initiated",
           description: `Withdrawal of ${amount} ${tokenType} to ${phoneNumber} has been initiated`,
@@ -140,11 +145,30 @@ export const BusinessWithdrawal: React.FC<BusinessWithdrawalProps> = ({ onSucces
         setAmount('');
         setPhoneNumber('');
         if (onSuccess) onSuccess();
+
+        pollTransaction(result.transactionId, {
+          intervalMs: 3500,
+          timeoutMs: 120000,
+          onUpdate: (tx) => setMpesaTransaction(tx),
+        }).catch(() => {
+          // Manual refresh remains available if polling is interrupted.
+        });
       }
     } catch (error) {
       console.error('Withdrawal error:', error);
     } finally {
       setIsSubmitting(false);
+    }
+  };
+
+  const refreshMpesaStatus = async () => {
+    if (!mpesaTransaction?.transactionId) return;
+    setRefreshingMpesa(true);
+    try {
+      const tx = await getTransaction(mpesaTransaction.transactionId);
+      setMpesaTransaction(tx);
+    } finally {
+      setRefreshingMpesa(false);
     }
   };
 
@@ -419,6 +443,51 @@ export const BusinessWithdrawal: React.FC<BusinessWithdrawalProps> = ({ onSucces
               )}
             </Button>
           </form>
+        )}
+
+        {activeTab === 'mpesa' && mpesaTransaction && (
+          <div className="mt-6 rounded-lg border border-[#0795B0]/40 bg-[#0795B0]/5 p-4">
+            <div className="flex items-start justify-between gap-3">
+              <div>
+                <p className="text-sm font-semibold text-white">M-Pesa Receipt</p>
+                <p className="text-xs text-gray-400">Track status and reference IDs for support/reconciliation.</p>
+              </div>
+              <button
+                type="button"
+                onClick={refreshMpesaStatus}
+                disabled={refreshingMpesa}
+                className="inline-flex items-center gap-1.5 rounded-md border border-[#0795B0] px-2.5 py-1 text-xs text-[#0795B0] hover:bg-[#0795B0]/10 disabled:opacity-60"
+              >
+                {refreshingMpesa ? (
+                  <Loader2 className="h-3.5 w-3.5 animate-spin" />
+                ) : (
+                  <RefreshCw className="h-3.5 w-3.5" />
+                )}
+                Refresh
+              </button>
+            </div>
+
+            <div className="mt-3 grid grid-cols-1 gap-2 text-sm md:grid-cols-2">
+              <p className="text-gray-300">
+                <span className="text-gray-400">Status:</span> {mpesaTransaction.status}
+              </p>
+              <p className="text-gray-300">
+                <span className="text-gray-400">Flow:</span> {mpesaTransaction.flowType}
+              </p>
+              <p className="text-gray-300">
+                <span className="text-gray-400">Amount:</span> KES {mpesaTransaction.quote.amountKes.toFixed(2)}
+              </p>
+              <p className="text-gray-300">
+                <span className="text-gray-400">Phone:</span> {mpesaTransaction.targets.phoneNumber || '-'}
+              </p>
+              <p className="text-gray-300 break-all">
+                <span className="text-gray-400">Transaction ID:</span> {mpesaTransaction.transactionId}
+              </p>
+              <p className="text-gray-300 break-all">
+                <span className="text-gray-400">M-Pesa Receipt:</span> {mpesaTransaction.daraja.receiptNumber || '-'}
+              </p>
+            </div>
+          </div>
         )}
 
         {/* Error Display */}

@@ -2,7 +2,6 @@ import React, { useState } from 'react';
 import { Button } from '@/components/ui/button';
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from '@/components/ui/card';
 import { cryptoAPI } from '@/lib/crypto';
-import { mpesaAPI } from '@/lib/mpesa';
 import { businessFinanceAPI } from '@/lib/business-finance-api';
 
 /**
@@ -73,67 +72,26 @@ export const ErrorHandlingDemo: React.FC = () => {
     }
   };
 
-  // Test 3: MPESA Withdrawal with Insufficient Balance
-  const testMpesaWithdrawalInsufficientBalance = async () => {
-    setLoading(true);
-    try {
-      await mpesaAPI.withdraw({
-        amount: '999999', // Very large amount
-        phoneNumber: '254700000000',
-        token: 'USDC',
-        chain: 'arbitrum'
-      });
-    } catch (error: any) {
-      addResult('MPESA Withdrawal - Insufficient Balance', {
-        errorType: error.error?.code || 'Unknown',
-        message: error.error?.message || error.message,
-        hasBalanceInfo: !!error.error?.currentBalance,
-        balance: error.error?.currentBalance
-      });
-    } finally {
-      setLoading(false);
-    }
-  };
-
-  // Test 4: Business Withdrawal with Insufficient Balance
+  // Test 3: Business Withdrawal with Insufficient Balance
   const testBusinessWithdrawalInsufficientBalance = async () => {
     setLoading(true);
     try {
-      await businessFinanceAPI.withdrawToPersonal({
+      const response = await businessFinanceAPI.withdrawToPersonal({
         businessId: 'test-business-id',
         amount: 999999, // Very large amount
         tokenType: 'USDC',
         chain: 'arbitrum'
       });
+      if (!response.success) {
+        addResult('Business Withdrawal - Insufficient Balance', {
+          errorType: 'BUSINESS_WITHDRAWAL_ERROR',
+          message: response.error || response.message || 'Business withdrawal failed',
+          hasBalanceInfo: false,
+          balance: null
+        });
+      }
     } catch (error: any) {
       addResult('Business Withdrawal - Insufficient Balance', {
-        errorType: error.error?.code || 'Unknown',
-        message: error.error?.message || error.message,
-        hasBalanceInfo: !!error.error?.currentBalance,
-        balance: error.error?.currentBalance
-      });
-    } finally {
-      setLoading(false);
-    }
-  };
-
-  // Test 5: Crypto Payment with Insufficient Balance
-  const testCryptoPaymentInsufficientBalance = async () => {
-    setLoading(true);
-    try {
-      await mpesaAPI.payWithCrypto({
-        amount: 1000, // KES amount
-        cryptoAmount: 999999, // Very large crypto amount
-        targetType: 'paybill',
-        targetNumber: '123456',
-        accountNumber: '123456789',
-        chain: 'arbitrum',
-        tokenType: 'USDC',
-        description: 'Test payment',
-        password: 'test123'
-      });
-    } catch (error: any) {
-      addResult('Crypto Payment - Insufficient Balance', {
         errorType: error.error?.code || 'Unknown',
         message: error.error?.message || error.message,
         hasBalanceInfo: !!error.error?.currentBalance,
@@ -173,27 +131,11 @@ export const ErrorHandlingDemo: React.FC = () => {
             </Button>
             
             <Button 
-              onClick={testMpesaWithdrawalInsufficientBalance}
-              disabled={loading}
-              variant="outline"
-            >
-              Test MPESA Withdrawal (Insufficient Balance)
-            </Button>
-            
-            <Button 
               onClick={testBusinessWithdrawalInsufficientBalance}
               disabled={loading}
               variant="outline"
             >
               Test Business Withdrawal (Insufficient Balance)
-            </Button>
-            
-            <Button 
-              onClick={testCryptoPaymentInsufficientBalance}
-              disabled={loading}
-              variant="outline"
-            >
-              Test Crypto Payment (Insufficient Balance)
             </Button>
             
             <Button 

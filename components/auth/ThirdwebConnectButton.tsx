@@ -13,9 +13,22 @@ import { useAuthSession } from "@/context/AuthSessionContext";
 
 type ThirdwebConnectButtonProps = {
   mode?: "login" | "signup";
+  /**
+   * Optional override for the primary CTA label.
+   * Useful for marketing onboarding where "Continue" reads better than "Create account".
+   */
+  labelOverride?: string;
+  /**
+   * Optional override for the connect modal title.
+   */
+  modalTitleOverride?: string;
 };
 
-export const ThirdwebConnectButton: React.FC<ThirdwebConnectButtonProps> = ({ mode = "login" }) => {
+export const ThirdwebConnectButton: React.FC<ThirdwebConnectButtonProps> = ({
+  mode = "login",
+  labelOverride,
+  modalTitleOverride,
+}) => {
   const router = useRouter();
   const { isLoggedIn, hasChecked } = useAuthSession();
   const walletConnectProjectId = process.env.NEXT_PUBLIC_WALLETCONNECT_PROJECT_ID;
@@ -107,7 +120,7 @@ export const ThirdwebConnectButton: React.FC<ThirdwebConnectButtonProps> = ({ mo
       appMetadata={{
         name: "DotPay",
         url: "https://app.dotpay.xyz",
-        description: "Stablecoin wallet for fast crypto payments.",
+        description: "Send, pay, and cash out with a USD balance shown in KSh.",
         logoUrl: "https://app.dotpay.xyz/icons/icon-192x192.png",
       }}
       walletConnect={
@@ -122,12 +135,16 @@ export const ThirdwebConnectButton: React.FC<ThirdwebConnectButtonProps> = ({ mo
         doLogout,
       }}
       connectButton={{
-        label: mode === "login" ? "Continue to DotPay" : "Create your DotPay account",
+        label:
+          labelOverride ||
+          (mode === "login" ? "Continue to DotPay" : "Create your DotPay account"),
         className: "!w-full !justify-center",
       }}
       theme="dark"
       connectModal={{
-        title: mode === "login" ? "Sign in to DotPay" : "Create your DotPay account",
+        title:
+          modalTitleOverride ||
+          (mode === "login" ? "Sign in to DotPay" : "Create your DotPay account"),
         size: "compact",
         showThirdwebBranding: false,
       }}

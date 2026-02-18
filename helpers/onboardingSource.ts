@@ -1,18 +1,17 @@
 export const onboardingSource = [
   {
-    title: "Effortless Crypto Transactions",
-    subtitle: "Send and receive crypto using your phone number",
+    title: "Send money in seconds",
+    subtitle: "Use phone numbers and DotPay IDs (DP...).",
     line: "150px",
   },
   {
-    title: "Merchant Payments Simplified",
-    subtitle: "Pay with stablecoin, merchants receive stablecoins",
+    title: "Pay bills and till numbers",
+    subtitle: "Pay with your DotPay balance, merchants get M-Pesa.",
     line: "150px",
   },
   {
-    title: "Borderless Transactions",
-    subtitle:
-      "From offline USSD transactions to seamless cross-border payments",
+    title: "Save in dollars, spend in shillings",
+    subtitle: "Your balance is in USD but shown in KSh.",
     line: "150px",
   },
 ];
