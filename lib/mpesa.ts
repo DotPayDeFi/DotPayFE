@@ -163,7 +163,12 @@ const readResponsePayload = async (response: Response): Promise<any> => {
 
 const normalizeResponse = <T>(payload: any, fallbackMessage: string): ApiResponse<T> => {
   if (payload && typeof payload === 'object' && typeof payload.success === 'boolean') {
-    return payload as ApiResponse<T>;
+    return {
+      success: payload.success,
+      message: typeof payload.message === 'string' ? payload.message : fallbackMessage,
+      data: payload.data !== undefined ? payload.data : payload,
+      timestamp: payload.timestamp || new Date().toISOString(),
+    } as ApiResponse<T>;
   }
 
   if (payload && typeof payload === 'object') {
