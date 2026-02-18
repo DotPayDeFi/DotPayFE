@@ -33,7 +33,7 @@ import {
 } from "thirdweb/react";
 import AuthGuard from "@/components/auth/AuthGuard";
 import { MpesaSendModePage } from "@/components/mpesa/MpesaSendModePage";
-import { isBackendApiConfigured, lookupUserFromBackend } from "@/lib/backendUser";
+import { isBackendApiConfigured, lookupUserFromBackend, verifyUserPin } from "@/lib/backendUser";
 import { getDotPayNetwork, getDotPayUsdcChain } from "@/lib/dotpayNetwork";
 import { getDotPayAccountAbstraction } from "@/lib/thirdwebAccountAbstraction";
 import { thirdwebClient } from "@/lib/thirdwebClient";
@@ -41,6 +41,7 @@ import { useKesRate } from "@/hooks/useKesRate";
 import { toE164KePhone } from "@/lib/kePhone";
 import { DetailsDisclosure } from "@/components/ui/DetailsDisclosure";
 import { formatKsh } from "@/lib/format";
+import { PinKeyboardInput } from "@/components/ui/PinKeyboardInput";
 
 // Circle's official USDC (proxy) on Arbitrum Sepolia.
 // Source: Circle "USDC Contract Addresses" docs.
@@ -51,6 +52,7 @@ const USDC_ARBITRUM_ONE_ADDRESS = "0xaf88d065e77c8cC2239327C5EDb3A432268e5831" a
 const ZERO_ADDRESS = "0x0000000000000000000000000000000000000000" as const;
 const USDC_DECIMALS = 6;
 const HIDE_BALANCES_KEY = "dotpay_hide_balances";
+const PIN_LENGTH = 6;
 
 type RecipientKind = "dotpay" | "wallet" | "email" | "phone";
 type Step = "choose" | "compose" | "review" | "success";
@@ -154,9 +156,11 @@ export default function SendPage() {
   const [amountInput, setAmountInput] = useState("");
   const [amountCurrency, setAmountCurrency] = useState<AmountCurrency>("KES");
   const [noteInput, setNoteInput] = useState("");
+  const [pin, setPin] = useState("");
   const [txHash, setTxHash] = useState<string | null>(null);
   const [txStatus, setTxStatus] = useState<"idle" | "submitted" | "confirmed">("idle");
   const [showReconnectCta, setShowReconnectCta] = useState(false);
+  const [authorizing, setAuthorizing] = useState(false);
 
   useEffect(() => {
     if (typeof window === "undefined") return;
@@ -565,11 +569,11 @@ export default function SendPage() {
     setStep("review");
   }, [account?.address, amountError, amountWei, recipientResolved?.address, recipientStatus, selfSend]);
 
-  const handleSubmit = useCallback(
-    async () => {
-      if (!account?.address) {
-        toast.error("No active connection. Please reconnect and try again.");
-        return;
+	  const handleSubmit = useCallback(
+	    async () => {
+	      if (!account?.address) {
+	        toast.error("No active connection. Please reconnect and try again.");
+	        return;
       }
       if (recipientStatus !== "resolved" || !recipientResolved?.address) {
         toast.error("Recipient not resolved.");
@@ -579,16 +583,25 @@ export default function SendPage() {
         toast.error("You can’t send to yourself.");
         return;
       }
-      if (!amountWei || amountWei <= BigInt(0) || amountError) {
-        toast.error(amountError ?? "Enter a valid amount.");
-        return;
-      }
+	      if (!amountWei || amountWei <= BigInt(0) || amountError) {
+	        toast.error(amountError ?? "Enter a valid amount.");
+	        return;
+	      }
 
-      try {
-        setTxHash(null);
-        setTxStatus("idle");
-        const tx = transfer({
-          contract: usdcContract,
+	      try {
+	        const normalizedPin = String(pin || "").replace(/\\D/g, "").slice(0, PIN_LENGTH);
+	        if (!normalizedPin || normalizedPin.length !== PIN_LENGTH) {
+	          toast.error(`Enter your ${PIN_LENGTH}-digit app PIN.`);
+	          return;
+	        }
+
+	        setAuthorizing(true);
+	        await verifyUserPin(account.address, normalizedPin);
+
+	        setTxHash(null);
+	        setTxStatus("idle");
+	        const tx = transfer({
+	          contract: usdcContract,
           to: recipientResolved.address,
           amountWei, // avoid extra decimals lookup
         });
@@ -633,36 +646,44 @@ export default function SendPage() {
         notifyRecipient();
 
         // Best-effort: confirm on-chain. (User can always check explorer link.)
-        waitForReceipt({
-          chain,
-          client: thirdwebClient,
-          transactionHash: result.transactionHash,
-        })
-          .then(async () => {
-            setTxStatus("confirmed");
-            await notifyRecipient({ toastOnFailure: Boolean(note) });
-          })
-          .catch(() => {
-            // Keep as "submitted" if confirmation fails (RPC hiccup, user closed tab, etc.)
-          });
-      } catch (error: any) {
-        toast.error(error?.message ?? "Payment failed.");
-      }
-    },
-    [
-      account?.address,
-      amountError,
-      amountWei,
-      recipientResolved,
-      recipientStatus,
-      refetchUsdcBalance,
-      selfSend,
-      sendTx,
-      usdcContract,
-      queryClient,
-      note,
-    ]
-  );
+	        waitForReceipt({
+	          chain,
+	          client: thirdwebClient,
+	          transactionHash: result.transactionHash,
+	        })
+	          .then(async () => {
+	            setTxStatus("confirmed");
+	            await notifyRecipient({ toastOnFailure: Boolean(note) });
+	          })
+	          .catch(() => {
+	            // Keep as "submitted" if confirmation fails (RPC hiccup, user closed tab, etc.)
+	          });
+	      } catch (error: any) {
+	        const message = error?.message ?? "Payment failed.";
+	        if (typeof message === "string" && message.toLowerCase().includes("pin is not set")) {
+	          window.location.assign("/onboarding/pin");
+	          return;
+	        }
+	        toast.error(error?.message ?? "Payment failed.");
+	      } finally {
+	        setAuthorizing(false);
+	      }
+	    },
+	    [
+	      account?.address,
+	      amountError,
+	      amountWei,
+	      recipientResolved,
+	      recipientStatus,
+	      refetchUsdcBalance,
+	      selfSend,
+	      sendTx,
+	      usdcContract,
+	      queryClient,
+	      note,
+	      pin,
+	    ]
+	  );
 
   const onExplorer = txHash
     ? enableTestnets
@@ -712,8 +733,10 @@ export default function SendPage() {
     setAmountInput("");
     setAmountCurrency("KES");
     setNoteInput("");
+    setPin("");
     setTxHash(null);
     setTxStatus("idle");
+    setAuthorizing(false);
   }, []);
 
   const startCompose = useCallback((kind: RecipientKind) => {
@@ -1193,11 +1216,19 @@ export default function SendPage() {
                   </div>
                 </div>
 
+                <PinKeyboardInput
+                  value={pin}
+                  onChange={setPin}
+                  length={PIN_LENGTH}
+                  label="Approve with PIN"
+                  helperText="You’ll use this PIN to authorize transfers."
+                />
+
                 <div className="grid grid-cols-2 gap-3">
                   <button
                     type="button"
                     onClick={() => setStep("compose")}
-                    disabled={isSending}
+                    disabled={isSending || authorizing}
                     className="rounded-xl border border-white/15 bg-white/5 px-4 py-3 text-sm font-semibold text-white/80 hover:bg-white/10 disabled:opacity-60"
                   >
                     Edit
@@ -1205,13 +1236,13 @@ export default function SendPage() {
                   <button
                     type="button"
                     onClick={handleSubmit}
-                    disabled={isSending || walletMissing}
+                    disabled={isSending || authorizing || walletMissing}
                     className="inline-flex items-center justify-center gap-2 rounded-xl border border-cyan-300/35 bg-cyan-500/15 px-4 py-3 text-sm font-semibold text-cyan-50 hover:bg-cyan-500/25 disabled:cursor-not-allowed disabled:opacity-60"
                   >
-                    {isSending ? (
+                    {isSending || authorizing ? (
                       <>
                         <Loader2 className="h-4 w-4 animate-spin" />
-                        Sending…
+                        {authorizing && !isSending ? "Approving…" : "Sending…"}
                       </>
                     ) : (
                       "Send"

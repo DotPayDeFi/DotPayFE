@@ -151,6 +151,41 @@ function normalizePin(value: string) {
   return String(value || "").replace(/\D/g, "").slice(0, PIN_LENGTH);
 }
 
+function normalizeSignature(value: unknown): string {
+  if (!value) return "";
+
+  if (typeof value === "string") {
+    const trimmed = value.trim();
+    if (/^[0-9a-fA-F]{130,}$/.test(trimmed)) return `0x${trimmed}`;
+    return trimmed;
+  }
+
+  // Some thirdweb account types return an object shape.
+  if (typeof value === "object") {
+    const maybe = (value as any)?.signature ?? (value as any)?.result ?? (value as any)?.data;
+    if (typeof maybe === "string") {
+      const trimmed = maybe.trim();
+      if (/^[0-9a-fA-F]{130,}$/.test(trimmed)) return `0x${trimmed}`;
+      return trimmed;
+    }
+  }
+
+  // Sometimes libraries return a byte array.
+  if (value instanceof Uint8Array) {
+    return `0x${Array.from(value)
+      .map((b) => b.toString(16).padStart(2, "0"))
+      .join("")}`;
+  }
+
+  if (Array.isArray(value) && value.every((x) => typeof x === "number")) {
+    return `0x${value
+      .map((b) => Number(b).toString(16).padStart(2, "0"))
+      .join("")}`;
+  }
+
+  return String(value).trim();
+}
+
 export function MpesaSendModePage({ mode, onBack }: { mode: SendMode; onBack: () => void }) {
   const account = useActiveAccount();
   const {
@@ -284,7 +319,12 @@ export function MpesaSendModePage({ mode, onBack }: { mode: SendMode; onBack: ()
       nonce,
     });
 
-    return (account as any).signMessage({ message });
+    const rawSignature = await (account as any).signMessage({ message });
+    const signature = normalizeSignature(rawSignature);
+    if (!/^0x[0-9a-fA-F]{130,}$/.test(signature)) {
+      throw new Error("Failed to generate a valid authorization signature. Reconnect and try again.");
+    }
+    return signature;
   }
 
   async function submitOnchainFunding(tx: MpesaTransaction) {
