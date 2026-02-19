@@ -4,16 +4,18 @@ import React, { useState } from 'react';
 import { useMpesa } from '../../hooks/useMpesa';
 import { useChain } from '../../context/ChainContext';
 import { useGetConversionRate } from '@/hooks/apiHooks';
+import { getDotPayNetwork } from '@/lib/dotpayNetwork';
 
 export const CryptoToMpesaForm: React.FC = () => {
   const { cryptoToMpesa, cryptoToMpesaLoading } = useMpesa();
   const { chain } = useChain();
   const { data: rate, isLoading: rateLoading } = useGetConversionRate();
+  const defaultChain = getDotPayNetwork() === 'sepolia' ? 'arbitrum-sepolia' : (chain || 'polygon');
   
   const [formData, setFormData] = useState({
     amount: '', // Amount in KES or USD
     recipientPhone: '',
-    chain: chain || 'polygon',
+    chain: defaultChain,
     tokenType: 'USDC',
     description: '',
   });
@@ -81,7 +83,7 @@ export const CryptoToMpesaForm: React.FC = () => {
         setFormData({
           amount: '',
           recipientPhone: '',
-          chain: chain || 'polygon',
+          chain: defaultChain,
           tokenType: 'USDC',
           description: '',
         });
@@ -175,6 +177,7 @@ export const CryptoToMpesaForm: React.FC = () => {
             onChange={handleInputChange}
             className="mt-1 block w-full px-3 py-2 bg-[#1A1E1E] border border-[#0795B0] rounded-md focus:outline-none focus:ring-2 focus:ring-[#0795B0] text-white"
           >
+            <option value="arbitrum-sepolia">Arbitrum Sepolia</option>
             <option value="arbitrum">Arbitrum</option>
             <option value="polygon">Polygon</option>
             <option value="base">Base</option>

@@ -23,6 +23,50 @@ type AuthSessionContextValue = {
 
 const AuthSessionContext = createContext<AuthSessionContextValue | null>(null);
 
+function createClientToken(address: string | null | undefined) {
+  const normalized = String(address || "").trim().toLowerCase();
+  const random = Math.random().toString(36).slice(2);
+  return `dotpay_${normalized}_${Date.now()}_${random}`;
+}
+
+function persistLegacyClientAuth(user: SessionUser | null, fallbackAddress?: string | null) {
+  if (typeof window === "undefined") return;
+
+  const address = user?.address || fallbackAddress || null;
+  if (!address) return;
+
+  try {
+    const existingToken = localStorage.getItem("dotpay_token");
+    if (!existingToken || existingToken.length < 20) {
+      localStorage.setItem("dotpay_token", createClientToken(address));
+    }
+
+    const legacyUser = {
+      address,
+      walletAddress: address,
+      phone: user?.phone ?? null,
+      phoneNumber: user?.phone ?? null,
+      email: user?.email ?? null,
+      userId: user?.userId ?? null,
+      authMethod: user?.authMethod ?? null,
+      createdAt: user?.createdAt ?? null,
+    };
+    localStorage.setItem("dotpay_user", JSON.stringify(legacyUser));
+  } catch {
+    // Ignore localStorage failures in restrictive browsers.
+  }
+}
+
+function clearLegacyClientAuth() {
+  if (typeof window === "undefined") return;
+  try {
+    localStorage.removeItem("dotpay_token");
+    localStorage.removeItem("dotpay_user");
+  } catch {
+    // Ignore localStorage failures in restrictive browsers.
+  }
+}
+
 export const AuthSessionProvider = ({ children }: { children: React.ReactNode }) => {
   const account = useActiveAccount();
   const [isLoggedIn, setIsLoggedIn] = useState(false);
@@ -51,6 +95,7 @@ export const AuthSessionProvider = ({ children }: { children: React.ReactNode })
         .then((user) => {
           const nextUser = user ?? null;
           setSessionUser(nextUser);
+          persistLegacyClientAuth(nextUser, null);
           if (!nextUser) return;
 
           const syncKey = `${nextUser.address}:${nextUser.userId ?? "no-user-id"}`;
@@ -97,6 +142,17 @@ export const AuthSessionProvider = ({ children }: { children: React.ReactNode })
       const detail = (e as CustomEvent<{ address?: string }>).detail;
       const address = detail?.address;
       if (address) {
+        persistLegacyClientAuth(
+          {
+            address,
+            email: null,
+            phone: null,
+            userId: null,
+            authMethod: null,
+            createdAt: null,
+          },
+          address
+        );
         const syncKey = `${address}:no-user-id`;
         if (!syncedUserKeysRef.current.has(syncKey)) {
           syncedUserKeysRef.current.add(syncKey);
@@ -127,6 +183,7 @@ export const AuthSessionProvider = ({ children }: { children: React.ReactNode })
     setHasChecked(true);
     setLoading(false);
     syncedUserKeysRef.current.clear();
+    clearLegacyClientAuth();
 
     const withTimeout = <T,>(promise: Promise<T>, ms: number) =>
       Promise.race<T>([

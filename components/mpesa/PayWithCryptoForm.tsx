@@ -4,18 +4,20 @@ import React, { useState } from 'react';
 import { useMpesa } from '../../hooks/useMpesa';
 import { useChain } from '../../context/ChainContext';
 import { useGetConversionRate } from '@/hooks/apiHooks';
+import { getDotPayNetwork } from '@/lib/dotpayNetwork';
 
 export const PayWithCryptoForm: React.FC = () => {
   const { payWithCrypto, payWithCryptoLoading } = useMpesa();
   const { chain } = useChain();
   const { data: rate, isLoading: rateLoading } = useGetConversionRate();
+  const defaultChain = getDotPayNetwork() === 'sepolia' ? 'arbitrum-sepolia' : (chain || 'polygon');
   
   const [formData, setFormData] = useState({
     amount: '', // KES or USD entered depending on mode
     targetType: 'paybill' as 'paybill' | 'till',
     targetNumber: '',
     accountNumber: '',
-    chain: chain || 'polygon',
+    chain: defaultChain,
     tokenType: 'USDC',
     description: '',
   });
@@ -84,7 +86,7 @@ export const PayWithCryptoForm: React.FC = () => {
           targetType: 'paybill',
           targetNumber: '',
           accountNumber: '',
-          chain: chain || 'polygon',
+          chain: defaultChain,
           tokenType: 'USDC',
           description: '',
         });
@@ -315,6 +317,7 @@ export const PayWithCryptoForm: React.FC = () => {
               onChange={handleInputChange}
               className="mt-1 block w-full px-3 py-2 bg-[#1A1E1E] border border-[#0795B0] rounded-md focus:outline-none focus:ring-2 focus:ring-[#0795B0]"
             >
+              <option value="arbitrum-sepolia">Arbitrum Sepolia</option>
               <option value="polygon">Polygon</option>
               <option value="arbitrum">Arbitrum</option>
               <option value="ethereum">Ethereum</option>

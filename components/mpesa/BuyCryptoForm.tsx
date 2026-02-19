@@ -3,14 +3,16 @@
 import React, { useState, useEffect } from 'react';
 import { useMpesa } from '../../hooks/useMpesa';
 import { cryptoConverter, CryptoConversion } from '../../lib/crypto-converter';
+import { getDotPayNetwork } from '@/lib/dotpayNetwork';
 
 export const BuyCryptoForm: React.FC = () => {
   const { buyCrypto, buyCryptoLoading } = useMpesa();
+  const defaultChain = getDotPayNetwork() === 'sepolia' ? 'arbitrum-sepolia' : 'arbitrum';
   
   const [formData, setFormData] = useState({
     fiatAmount: '', // Amount in KES/USD
     phone: '',
-    chain: 'arbitrum',
+    chain: defaultChain,
     tokenType: 'USDC',
     currency: 'KES' as 'KES' | 'USD',
   });
@@ -195,7 +197,7 @@ export const BuyCryptoForm: React.FC = () => {
         setFormData({
           fiatAmount: '',
           phone: authStatus.user?.phoneNumber || '', // Keep phone number
-          chain: 'arbitrum',
+          chain: defaultChain,
           tokenType: 'USDC',
           currency: 'KES',
         });
@@ -348,6 +350,7 @@ export const BuyCryptoForm: React.FC = () => {
               onChange={handleInputChange}
               className="w-full px-3 py-3 bg-[#1A1E1E] border border-[#0795B0] rounded-md text-white focus:outline-none focus:ring-2 focus:ring-[#0795B0] focus:border-transparent hover:border-[#0AA5C0] transition-colors duration-200"
             >
+              <option value="arbitrum-sepolia">Arbitrum Sepolia</option>
               <option value="arbitrum">Arbitrum</option>
               <option value="celo">Celo</option>
               <option value="polygon">Polygon</option>

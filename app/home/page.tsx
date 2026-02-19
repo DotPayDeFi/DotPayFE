@@ -474,10 +474,10 @@ export default function HomePage() {
       return;
     }
     if (action === "pay") {
-      toast("Bill pay flow will be reconnected next.");
+      router.push("/mpesa?tab=pay");
       return;
     }
-    toast("Top up flow will be reconnected next.");
+    router.push("/mpesa?tab=buy");
   };
 
   const notificationsQuery = useNotifications({ limit: 25, enabled: backendConfigured });
