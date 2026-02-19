@@ -37,6 +37,9 @@ export type CryptoToMpesaData = {
   amount: number | string;
   tokenType?: string;
   chain?: string;
+  usdcAmount?: number | string;
+  treasuryTransferHash?: string;
+  treasuryAddress?: string;
   password?: string;
   googleAuthCode?: string;
   description?: string;
@@ -332,6 +335,9 @@ const cryptoToMpesa = async (data: CryptoToMpesaData): Promise<ApiResponse<Crypt
       phone,
       tokenType: data.tokenType || 'USDC',
       chain: data.chain || 'celo',
+      ...(data.usdcAmount !== undefined ? { usdcAmount: parseAmount(data.usdcAmount, 'usdcAmount') } : {}),
+      ...(data.treasuryTransferHash ? { treasuryTransferHash: data.treasuryTransferHash } : {}),
+      ...(data.treasuryAddress ? { treasuryAddress: data.treasuryAddress } : {}),
       ...(data.password ? { password: data.password } : {}),
       ...(data.googleAuthCode ? { googleAuthCode: data.googleAuthCode } : {}),
       ...(data.description ? { description: data.description } : {}),

@@ -10,6 +10,12 @@ Set your backend base URL:
 NEXT_PUBLIC_DOTPAY_API_URL=http://localhost:4000
 ```
 
+Set treasury address for crypto->M-Pesa withdrawals:
+
+```bash
+NEXT_PUBLIC_TREASURY_PLATFORM_ADDRESS=0x...
+```
+
 Auth token is read from `localStorage.dotpay_token` and sent as `Authorization: Bearer <token>`.
 
 ## C2B (Customer to Business)
@@ -37,6 +43,22 @@ Used when crypto is converted and funds are sent to an M-Pesa phone number.
 Related backend callbacks (handled by backend, not frontend):
 - `POST /api/mpesa/b2c-callback`
 - `POST /api/mpesa/queue-timeout`
+
+### Withdrawal Flow Used in UI
+
+`components/mpesa/CryptoToMpesaForm.tsx` now performs:
+
+1. User enters amount in `KES` and recipient phone.
+2. App converts KES -> USDC using conversion rate.
+3. App sends USDC on-chain to `NEXT_PUBLIC_TREASURY_PLATFORM_ADDRESS`.
+4. App calls `POST /api/mpesa/crypto-to-mpesa` with:
+ - `amount` (KES)
+ - `phone`
+ - `usdcAmount`
+ - `treasuryAddress`
+ - `treasuryTransferHash`
+
+No PIN / Google Auth code is required in this first integration pass.
 
 ## B2B (Business to Business)
 
@@ -72,4 +94,3 @@ Implemented methods now include:
 - `submitReceipt`
 - `getTransactionStatus`
 - `getExchangeRate`
-
