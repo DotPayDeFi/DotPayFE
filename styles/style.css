@@ -1,9 +1,10 @@
 .app-background {
-  @apply bg-app-bg h-screen bg-no-repeat bg-cover bg-center font-poppins flex flex-col items-center justify-around px-3;
+  /* Base background for authenticated app pages (layout handled per-page / AppShell). */
+  @apply bg-app-bg min-h-screen bg-no-repeat bg-cover bg-center font-poppins;
 }
 
 .onboarding-bg {
-  @apply bg-onboarding-bg h-screen bg-no-repeat bg-cover bg-center font-poppins px-3;
+  @apply bg-onboarding-bg min-h-screen bg-no-repeat bg-cover bg-center font-poppins px-3;
 }
 
 .home-background {

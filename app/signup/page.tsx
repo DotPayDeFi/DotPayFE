@@ -30,9 +30,9 @@ const Signup = () => {
   return (
     <section className="app-background flex flex-col items-center justify-center px-4">
       <article className="max-w-md w-full text-center">
-        <h2 className="text-4xl text-white font-bold mb-4">Sign up to DotPay</h2>
+        <h2 className="text-4xl text-white font-bold mb-4">Create your DotPay account</h2>
         <p className="text-white mb-8">
-          Create your account with a secure wallet using Google, email, or SMS.
+          Continue with Google, Email or Phone.
         </p>
         <div className="flex justify-center mb-6">
           <ThirdwebConnectButton mode="signup" />

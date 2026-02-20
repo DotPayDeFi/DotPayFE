@@ -3,16 +3,12 @@ import { useApi } from './useApi';
 import {
   stellarWalletAPI,
   stellarPaymentAPI,
-  stellarMpesaAPI,
   stellarUtils,
   StellarWalletResponse,
   StellarSendPaymentData,
   StellarSendPaymentResponse,
   StellarBalance,
   StellarTransaction,
-  StellarMpesaDepositData,
-  StellarMpesaWithdrawData,
-  STELLAR_SUPPORTED_ASSETS,
 } from '../lib/stellar';
 import toast from 'react-hot-toast';
 
@@ -38,13 +34,6 @@ export interface UseStellarReturn {
   // Payment Operations
   sendPayment: (data: StellarSendPaymentData) => Promise<StellarSendPaymentResponse | null>;
   getTransactionHistory: (limit?: number, cursor?: string) => Promise<StellarTransaction[]>;
-
-  // M-Pesa Operations
-  buyWithMpesa: (data: StellarMpesaDepositData) => Promise<any>;
-  sellToMpesa: (data: StellarMpesaWithdrawData) => Promise<any>;
-  getRates: () => Promise<any>;
-  convertKESToAsset: (amountKES: number, asset: 'XLM' | 'USDC') => Promise<any>;
-  convertAssetToKES: (amountAsset: string, asset: 'XLM' | 'USDC') => Promise<any>;
 
   // Transaction History
   transactions: StellarTransaction[];
@@ -231,89 +220,6 @@ export const useStellar = (): UseStellarReturn => {
   }, []);
 
   // ================================
-  // M-PESA OPERATIONS
-  // ================================
-
-  const buyWithMpesa = useCallback(async (data: StellarMpesaDepositData) => {
-    try {
-      setLoading(true);
-      setError(null);
-      const response = await stellarMpesaAPI.deposit(data);
-      
-      if (response.success) {
-        toast.success('M-Pesa STK Push initiated. Please complete payment on your phone.');
-        return response;
-      } else {
-        throw new Error(response.message || 'Failed to initiate M-Pesa payment');
-      }
-    } catch (err: any) {
-      const message = err.response?.data?.message || err.message || 'Failed to buy crypto with M-Pesa';
-      setError(message);
-      toast.error(message);
-      throw err;
-    } finally {
-      setLoading(false);
-    }
-  }, []);
-
-  const sellToMpesa = useCallback(async (data: StellarMpesaWithdrawData) => {
-    try {
-      setLoading(true);
-      setError(null);
-      const response = await stellarMpesaAPI.withdraw(data);
-      
-      if (response.success) {
-        toast.success('Withdrawal initiated. You will receive M-Pesa shortly.');
-        // Refresh wallet after successful withdrawal
-        await refreshWallet();
-        return response;
-      } else {
-        throw new Error(response.message || 'Failed to withdraw to M-Pesa');
-      }
-    } catch (err: any) {
-      const message = err.response?.data?.message || err.message || 'Failed to withdraw to M-Pesa';
-      setError(message);
-      toast.error(message);
-      throw err;
-    } finally {
-      setLoading(false);
-    }
-  }, [refreshWallet]);
-
-  const getRates = useCallback(async () => {
-    try {
-      const response = await stellarMpesaAPI.getRates();
-      return response;
-    } catch (err: any) {
-      const message = err.response?.data?.message || err.message || 'Failed to get exchange rates';
-      toast.error(message);
-      throw err;
-    }
-  }, []);
-
-  const convertKESToAsset = useCallback(async (amountKES: number, asset: 'XLM' | 'USDC') => {
-    try {
-      const response = await stellarMpesaAPI.convertKESToAsset({ amountKES, asset });
-      return response;
-    } catch (err: any) {
-      const message = err.response?.data?.message || err.message || 'Failed to convert KES to asset';
-      toast.error(message);
-      throw err;
-    }
-  }, []);
-
-  const convertAssetToKES = useCallback(async (amountAsset: string, asset: 'XLM' | 'USDC') => {
-    try {
-      const response = await stellarMpesaAPI.convertAssetToKES({ amountAsset, asset });
-      return response;
-    } catch (err: any) {
-      const message = err.response?.data?.message || err.message || 'Failed to convert asset to KES';
-      toast.error(message);
-      throw err;
-    }
-  }, []);
-
-  // ================================
   // TRANSACTION HISTORY
   // ================================
 
@@ -364,13 +270,6 @@ export const useStellar = (): UseStellarReturn => {
     sendPayment,
     getTransactionHistory,
 
-    // M-Pesa Operations
-    buyWithMpesa,
-    sellToMpesa,
-    getRates,
-    convertKESToAsset,
-    convertAssetToKES,
-
     // Transaction History
     transactions,
     loadTransactions,
@@ -383,5 +282,4 @@ export const useStellar = (): UseStellarReturn => {
 };
 
 export default useStellar;
-
 

@@ -6,12 +6,19 @@ import toast from "react-hot-toast";
 import { useQueryClient } from "@tanstack/react-query";
 import {
   ArrowLeft,
+  ArrowUpRight,
   CheckCircle2,
+  ChevronRight,
   ExternalLink,
+  Hash,
   Loader2,
+  Mail,
+  Phone,
   Search,
   Send,
+  Share2,
   ShieldCheck,
+  Wallet,
   XCircle,
 } from "lucide-react";
 import { getContract, waitForReceipt } from "thirdweb";
@@ -25,11 +32,16 @@ import {
   useSendTransaction,
 } from "thirdweb/react";
 import AuthGuard from "@/components/auth/AuthGuard";
-import { isBackendApiConfigured, lookupUserFromBackend } from "@/lib/backendUser";
+import { MpesaSendModePage } from "@/components/mpesa/MpesaSendModePage";
+import { isBackendApiConfigured, lookupUserFromBackend, verifyUserPin } from "@/lib/backendUser";
 import { getDotPayNetwork, getDotPayUsdcChain } from "@/lib/dotpayNetwork";
 import { getDotPayAccountAbstraction } from "@/lib/thirdwebAccountAbstraction";
 import { thirdwebClient } from "@/lib/thirdwebClient";
 import { useKesRate } from "@/hooks/useKesRate";
+import { toE164KePhone } from "@/lib/kePhone";
+import { DetailsDisclosure } from "@/components/ui/DetailsDisclosure";
+import { formatKsh } from "@/lib/format";
+import { PinKeyboardInput } from "@/components/ui/PinKeyboardInput";
 
 // Circle's official USDC (proxy) on Arbitrum Sepolia.
 // Source: Circle "USDC Contract Addresses" docs.
@@ -39,9 +51,11 @@ const USDC_ARBITRUM_ONE_ADDRESS = "0xaf88d065e77c8cC2239327C5EDb3A432268e5831" a
 
 const ZERO_ADDRESS = "0x0000000000000000000000000000000000000000" as const;
 const USDC_DECIMALS = 6;
+const HIDE_BALANCES_KEY = "dotpay_hide_balances";
+const PIN_LENGTH = 6;
 
 type RecipientKind = "dotpay" | "wallet" | "email" | "phone";
-type Step = "compose" | "review" | "success";
+type Step = "choose" | "compose" | "review" | "success";
 type AmountCurrency = "KES" | "USD";
 
 type ResolvedRecipient = {
@@ -51,32 +65,57 @@ type ResolvedRecipient = {
   displayName: string;
 };
 
+type MpesaMode = "cashout" | "paybill" | "buygoods";
+
 const isEvmAddress = (value: string) => /^0x[a-fA-F0-9]{40}$/.test(value.trim());
 const isLikelyEmail = (value: string) => /^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(value.trim());
-const normalizePhone = (value: string) => value.trim().replace(/[\s()-]/g, "");
-const isLikelyPhone = (value: string) => {
-  const v = normalizePhone(value);
-  const digits = v.replace(/[^0-9]/g, "");
-  return digits.length >= 7;
-};
+const isLikelyPhone = (value: string) => Boolean(toE164KePhone(value));
 const normalizeAmountInput = (value: string) => value.trim().replace(/,/g, "");
 const shortAddress = (addr: string) => `${addr.slice(0, 6)}…${addr.slice(-4)}`;
 const titleForKind = (kind: RecipientKind) => {
   if (kind === "dotpay") return "DotPay ID";
-  if (kind === "wallet") return "Wallet address";
+  if (kind === "wallet") return "Crypto wallet (advanced)";
   if (kind === "email") return "Email";
-  return "Phone";
+  return "Phone number";
 };
 const placeholderForKind = (kind: RecipientKind) => {
   if (kind === "dotpay") return "DP123456789";
   if (kind === "wallet") return "0x…";
   if (kind === "email") return "name@example.com";
-  return "+2547…";
+  return "07xx xxx xxx";
 };
+
+function BlurredValue({
+  hidden,
+  className,
+  children,
+}: {
+  hidden: boolean;
+  className?: string;
+  children: React.ReactNode;
+}) {
+  return (
+    <span className={["relative inline-flex items-center", hidden ? "select-none" : "", className || ""].join(" ")}>
+      <span className={["relative z-10 transition", hidden ? "blur-md opacity-70" : ""].join(" ")}>
+        {children}
+      </span>
+      {hidden && (
+        <span
+          aria-hidden
+          className="pointer-events-none absolute inset-0 z-20 rounded-xl bg-white/10 backdrop-blur-md ring-1 ring-white/15"
+        />
+      )}
+    </span>
+  );
+}
 
 export default function SendPage() {
   const router = useRouter();
   const searchParams = useSearchParams();
+  const modeParam = (searchParams?.get("mode") || "").trim().toLowerCase();
+  // Canonical routes: /pay, /add-funds. Keep /send?mode=... for backward compatibility.
+  const mpesaMode: MpesaMode | null = modeParam === "cashout" ? "cashout" : null;
+
   const queryClient = useQueryClient();
   const account = useActiveAccount();
   const isAutoConnecting = useIsAutoConnecting();
@@ -90,8 +129,23 @@ export default function SendPage() {
   const usdcAddress =
     dotpayNetwork === "sepolia" ? USDC_ARBITRUM_SEPOLIA_ADDRESS : USDC_ARBITRUM_ONE_ADDRESS;
 
-  const [step, setStep] = useState<Step>("compose");
-  const [recipientKind, setRecipientKind] = useState<RecipientKind>("dotpay");
+  useEffect(() => {
+    if (modeParam === "pay") {
+      router.replace("/pay");
+      return;
+    }
+    if (modeParam === "paybill") {
+      router.replace("/pay/paybill");
+      return;
+    }
+    if (modeParam === "buygoods") {
+      router.replace("/pay/till");
+    }
+  }, [modeParam, router]);
+
+  const [step, setStep] = useState<Step>("choose");
+  const [hideBalances, setHideBalances] = useState(false);
+  const [recipientKind, setRecipientKind] = useState<RecipientKind>("phone");
   const [recipientInput, setRecipientInput] = useState("");
   const [recipientResolved, setRecipientResolved] = useState<ResolvedRecipient | null>(null);
   const [recipientStatus, setRecipientStatus] = useState<
@@ -102,9 +156,16 @@ export default function SendPage() {
   const [amountInput, setAmountInput] = useState("");
   const [amountCurrency, setAmountCurrency] = useState<AmountCurrency>("KES");
   const [noteInput, setNoteInput] = useState("");
+  const [pin, setPin] = useState("");
   const [txHash, setTxHash] = useState<string | null>(null);
   const [txStatus, setTxStatus] = useState<"idle" | "submitted" | "confirmed">("idle");
   const [showReconnectCta, setShowReconnectCta] = useState(false);
+  const [authorizing, setAuthorizing] = useState(false);
+
+  useEffect(() => {
+    if (typeof window === "undefined") return;
+    setHideBalances(window.localStorage.getItem(HIDE_BALANCES_KEY) === "1");
+  }, []);
 
   const usdcContract = useMemo(
     () =>
@@ -138,7 +199,7 @@ export default function SendPage() {
 
   const formatKes = useCallback(
     (value: number) =>
-      `KES ${new Intl.NumberFormat("en-KE", { maximumFractionDigits: 0 }).format(value)}`,
+      `KSh ${new Intl.NumberFormat("en-KE", { maximumFractionDigits: 0 }).format(value)}`,
     []
   );
 
@@ -193,7 +254,7 @@ export default function SendPage() {
         appMetadata: {
           name: "DotPay",
           url: "https://app.dotpay.xyz",
-          description: "Stablecoin wallet for fast crypto payments.",
+          description: "Mobile wallet for fast payments and clear receipts.",
           logoUrl: "https://app.dotpay.xyz/icons/icon-192x192.png",
         },
         theme: "dark",
@@ -239,6 +300,7 @@ export default function SendPage() {
 
     if (kind) setRecipientKind(kind);
     if (toRaw) setRecipientInput(toRaw);
+    setStep("compose");
 
     if (currencyRaw === "KES" || currencyRaw === "USD") {
       setAmountCurrency(currencyRaw as AmountCurrency);
@@ -333,11 +395,16 @@ export default function SendPage() {
       return;
     }
 
+    const lookupInput =
+      recipientKind === "phone"
+        ? toE164KePhone(q) || q
+        : q;
+
     setRecipientStatus("resolving");
     const seq = ++lookupSeqRef.current;
     if (lookupTimerRef.current) clearTimeout(lookupTimerRef.current);
     lookupTimerRef.current = setTimeout(() => {
-      lookupUserFromBackend(q)
+      lookupUserFromBackend(lookupInput)
         .then((u) => {
           if (seq !== lookupSeqRef.current) return;
           if (!u?.address) {
@@ -502,11 +569,11 @@ export default function SendPage() {
     setStep("review");
   }, [account?.address, amountError, amountWei, recipientResolved?.address, recipientStatus, selfSend]);
 
-  const handleSubmit = useCallback(
-    async () => {
-      if (!account?.address) {
-        toast.error("No active connection. Please reconnect and try again.");
-        return;
+	  const handleSubmit = useCallback(
+	    async () => {
+	      if (!account?.address) {
+	        toast.error("No active connection. Please reconnect and try again.");
+	        return;
       }
       if (recipientStatus !== "resolved" || !recipientResolved?.address) {
         toast.error("Recipient not resolved.");
@@ -516,16 +583,25 @@ export default function SendPage() {
         toast.error("You can’t send to yourself.");
         return;
       }
-      if (!amountWei || amountWei <= BigInt(0) || amountError) {
-        toast.error(amountError ?? "Enter a valid amount.");
-        return;
-      }
+	      if (!amountWei || amountWei <= BigInt(0) || amountError) {
+	        toast.error(amountError ?? "Enter a valid amount.");
+	        return;
+	      }
 
-      try {
-        setTxHash(null);
-        setTxStatus("idle");
-        const tx = transfer({
-          contract: usdcContract,
+	      try {
+	        const normalizedPin = String(pin || "").replace(/\\D/g, "").slice(0, PIN_LENGTH);
+	        if (!normalizedPin || normalizedPin.length !== PIN_LENGTH) {
+	          toast.error(`Enter your ${PIN_LENGTH}-digit app PIN.`);
+	          return;
+	        }
+
+	        setAuthorizing(true);
+	        await verifyUserPin(account.address, normalizedPin);
+
+	        setTxHash(null);
+	        setTxStatus("idle");
+	        const tx = transfer({
+	          contract: usdcContract,
           to: recipientResolved.address,
           amountWei, // avoid extra decimals lookup
         });
@@ -570,36 +646,44 @@ export default function SendPage() {
         notifyRecipient();
 
         // Best-effort: confirm on-chain. (User can always check explorer link.)
-        waitForReceipt({
-          chain,
-          client: thirdwebClient,
-          transactionHash: result.transactionHash,
-        })
-          .then(async () => {
-            setTxStatus("confirmed");
-            await notifyRecipient({ toastOnFailure: Boolean(note) });
-          })
-          .catch(() => {
-            // Keep as "submitted" if confirmation fails (RPC hiccup, user closed tab, etc.)
-          });
-      } catch (error: any) {
-        toast.error(error?.message ?? "Payment failed.");
-      }
-    },
-    [
-      account?.address,
-      amountError,
-      amountWei,
-      recipientResolved,
-      recipientStatus,
-      refetchUsdcBalance,
-      selfSend,
-      sendTx,
-      usdcContract,
-      queryClient,
-      note,
-    ]
-  );
+	        waitForReceipt({
+	          chain,
+	          client: thirdwebClient,
+	          transactionHash: result.transactionHash,
+	        })
+	          .then(async () => {
+	            setTxStatus("confirmed");
+	            await notifyRecipient({ toastOnFailure: Boolean(note) });
+	          })
+	          .catch(() => {
+	            // Keep as "submitted" if confirmation fails (RPC hiccup, user closed tab, etc.)
+	          });
+	      } catch (error: any) {
+	        const message = error?.message ?? "Payment failed.";
+	        if (typeof message === "string" && message.toLowerCase().includes("pin is not set")) {
+	          window.location.assign("/onboarding/pin");
+	          return;
+	        }
+	        toast.error(error?.message ?? "Payment failed.");
+	      } finally {
+	        setAuthorizing(false);
+	      }
+	    },
+	    [
+	      account?.address,
+	      amountError,
+	      amountWei,
+	      recipientResolved,
+	      recipientStatus,
+	      refetchUsdcBalance,
+	      selfSend,
+	      sendTx,
+	      usdcContract,
+	      queryClient,
+	      note,
+	      pin,
+	    ]
+	  );
 
   const onExplorer = txHash
     ? enableTestnets
@@ -608,9 +692,40 @@ export default function SendPage() {
     : null;
   const walletMissing = !account?.address;
 
+  const shareReceiptText = useMemo(() => {
+    const lines: string[] = [];
+    lines.push("DotPay receipt");
+    lines.push("Type: Transfer");
+    if (typeof amountKes === "number") lines.push(`Amount: ${formatKes(amountKes)}`);
+    if (typeof amountUsdc === "number") lines.push(`USD: ${formatUsdc(amountUsdc)} USD`);
+    if (recipientResolved?.displayName) lines.push(`To: ${recipientResolved.displayName}`);
+    if (note) lines.push(`Note: ${note}`);
+    if (txHash) lines.push(`Reference: ${txHash}`);
+    if (onExplorer) lines.push(`Explorer: ${onExplorer}`);
+    return lines.join("\n");
+  }, [amountKes, amountUsdc, formatKes, formatUsdc, note, onExplorer, recipientResolved?.displayName, txHash]);
+
+  const handleShareReceipt = useCallback(async () => {
+    if (!shareReceiptText) return;
+    if (navigator.share) {
+      try {
+        await navigator.share({ title: "DotPay receipt", text: shareReceiptText });
+        return;
+      } catch {
+        // ignore
+      }
+    }
+    try {
+      await navigator.clipboard.writeText(shareReceiptText);
+      toast.success("Receipt copied");
+    } catch {
+      toast.error("Unable to share receipt");
+    }
+  }, [shareReceiptText]);
+
   const resetFlow = useCallback(() => {
-    setStep("compose");
-    setRecipientKind("dotpay");
+    setStep("choose");
+    setRecipientKind("phone");
     setRecipientInput("");
     setRecipientResolved(null);
     setRecipientStatus("idle");
@@ -618,9 +733,44 @@ export default function SendPage() {
     setAmountInput("");
     setAmountCurrency("KES");
     setNoteInput("");
+    setPin("");
     setTxHash(null);
     setTxStatus("idle");
+    setAuthorizing(false);
   }, []);
+
+  const startCompose = useCallback((kind: RecipientKind) => {
+    setRecipientKind(kind);
+    setRecipientInput("");
+    setRecipientResolved(null);
+    setRecipientStatus("idle");
+    setRecipientMessage(null);
+    setStep("compose");
+  }, []);
+
+  const handleBack = useCallback(() => {
+    if (step === "choose") {
+      router.push("/home");
+      return;
+    }
+    if (step === "compose") {
+      setStep("choose");
+      return;
+    }
+    if (step === "review") {
+      setStep("compose");
+      return;
+    }
+    router.push("/home");
+  }, [router, step]);
+
+  if (mpesaMode) {
+    return (
+      <AuthGuard redirectTo="/onboarding">
+        <MpesaSendModePage mode={mpesaMode} onBack={() => router.push("/send")} />
+      </AuthGuard>
+    );
+  }
 
   return (
     <AuthGuard redirectTo="/onboarding">
@@ -629,7 +779,7 @@ export default function SendPage() {
           <header className="flex items-center justify-between gap-3">
             <button
               type="button"
-              onClick={() => router.push("/home")}
+              onClick={handleBack}
               className="inline-flex items-center gap-2 rounded-xl border border-white/15 bg-white/5 px-3 py-2 text-sm hover:bg-white/10"
             >
               <ArrowLeft className="h-4 w-4" />
@@ -638,11 +788,121 @@ export default function SendPage() {
 
             <div className="text-right">
               <p className="text-xs uppercase tracking-wide text-white/60">Send</p>
-              <h1 className="text-xl font-semibold">USDC</h1>
+              <h1 className="text-xl font-semibold">Send money</h1>
             </div>
           </header>
 
-          <article className="rounded-2xl border border-white/10 bg-black/30 p-5">
+          {step === "choose" && (
+            <article className="space-y-3 rounded-2xl border border-white/10 bg-black/30 p-5">
+              <button
+                type="button"
+                onClick={() => startCompose("phone")}
+                className="group w-full rounded-2xl border border-white/10 bg-white/5 p-4 text-left hover:bg-white/10"
+              >
+                <div className="flex items-start justify-between gap-3">
+                  <div className="flex items-start gap-3">
+                    <div className="rounded-xl border border-white/10 bg-black/20 p-2 text-cyan-100">
+                      <Phone className="h-5 w-5" />
+                    </div>
+                    <div className="min-w-0">
+                      <p className="text-sm font-semibold">Phone number</p>
+                      <p className="mt-1 text-xs text-white/65">
+                        Send to a DotPay account using a phone number.
+                      </p>
+                    </div>
+                  </div>
+                  <ChevronRight className="mt-1 h-4 w-4 text-white/40 transition group-hover:translate-x-0.5 group-hover:text-white/55" />
+                </div>
+              </button>
+
+              <button
+                type="button"
+                onClick={() => startCompose("dotpay")}
+                className="group w-full rounded-2xl border border-white/10 bg-white/5 p-4 text-left hover:bg-white/10"
+              >
+                <div className="flex items-start justify-between gap-3">
+                  <div className="flex items-start gap-3">
+                    <div className="rounded-xl border border-white/10 bg-black/20 p-2 text-cyan-100">
+                      <Hash className="h-5 w-5" />
+                    </div>
+                    <div className="min-w-0">
+                      <p className="text-sm font-semibold">DotPay ID</p>
+                      <p className="mt-1 text-xs text-white/65">
+                        Use the DP... DotPay ID for fast transfers.
+                      </p>
+                    </div>
+                  </div>
+                  <ChevronRight className="mt-1 h-4 w-4 text-white/40 transition group-hover:translate-x-0.5 group-hover:text-white/55" />
+                </div>
+              </button>
+
+              <button
+                type="button"
+                onClick={() => startCompose("email")}
+                className="group w-full rounded-2xl border border-white/10 bg-white/5 p-4 text-left hover:bg-white/10"
+              >
+                <div className="flex items-start justify-between gap-3">
+                  <div className="flex items-start gap-3">
+                    <div className="rounded-xl border border-white/10 bg-black/20 p-2 text-cyan-100">
+                      <Mail className="h-5 w-5" />
+                    </div>
+                    <div className="min-w-0">
+                      <p className="text-sm font-semibold">Email</p>
+                      <p className="mt-1 text-xs text-white/65">
+                        Send to a DotPay account using an email address.
+                      </p>
+                    </div>
+                  </div>
+                  <ChevronRight className="mt-1 h-4 w-4 text-white/40 transition group-hover:translate-x-0.5 group-hover:text-white/55" />
+                </div>
+              </button>
+
+              <button
+                type="button"
+                onClick={() => startCompose("wallet")}
+                className="group w-full rounded-2xl border border-white/10 bg-white/5 p-4 text-left hover:bg-white/10"
+              >
+                <div className="flex items-start justify-between gap-3">
+                  <div className="flex items-start gap-3">
+                    <div className="rounded-xl border border-white/10 bg-black/20 p-2 text-white/80">
+                      <Wallet className="h-5 w-5" />
+                    </div>
+                    <div className="min-w-0">
+                      <p className="text-sm font-semibold">Crypto wallet (advanced)</p>
+                      <p className="mt-1 text-xs text-white/65">
+                        Send to a 0x address. No DotPay lookup required.
+                      </p>
+                    </div>
+                  </div>
+                  <ChevronRight className="mt-1 h-4 w-4 text-white/40 transition group-hover:translate-x-0.5 group-hover:text-white/55" />
+                </div>
+              </button>
+
+              <button
+                type="button"
+                onClick={() => router.push("/send?mode=cashout")}
+                className="group w-full rounded-2xl border border-emerald-300/20 bg-emerald-500/10 p-4 text-left hover:bg-emerald-500/15"
+              >
+                <div className="flex items-start justify-between gap-3">
+                  <div className="flex items-start gap-3">
+                    <div className="rounded-xl border border-emerald-300/20 bg-black/20 p-2 text-emerald-100">
+                      <ArrowUpRight className="h-5 w-5" />
+                    </div>
+                    <div className="min-w-0">
+                      <p className="text-sm font-semibold">Cash out to M-Pesa</p>
+                      <p className="mt-1 text-xs text-white/70">
+                        Convert to KSh and send to a phone number.
+                      </p>
+                    </div>
+                  </div>
+                  <ChevronRight className="mt-1 h-4 w-4 text-white/55 transition group-hover:translate-x-0.5" />
+                </div>
+              </button>
+            </article>
+          )}
+
+          {step !== "choose" && (
+            <article className="rounded-2xl border border-white/10 bg-black/30 p-5">
             <div className="flex items-start justify-between gap-3">
               <div>
                 <p className="text-sm font-semibold">Available balance</p>
@@ -651,7 +911,7 @@ export default function SendPage() {
                 </p>
                 {typeof kesBalance === "number" && (
                   <p className="mt-1 text-xs text-white/60">
-                    ≈ {formatKes(kesBalance)}
+                    <BlurredValue hidden={hideBalances}>≈ {formatKes(kesBalance)}</BlurredValue>
                   </p>
                 )}
               </div>
@@ -659,12 +919,33 @@ export default function SendPage() {
                 {usdcBalanceLoading
                   ? "Checking balance…"
                   : usdcBalance
-                  ? `${usdcBalance.displayValue} USDC`
+                  ? (
+                      <BlurredValue hidden={hideBalances}>{`${usdcBalance.displayValue} USD`}</BlurredValue>
+                    )
                   : walletMissing
                   ? "Connect to view balance"
                   : "Balance unavailable"}
               </div>
             </div>
+
+            <DetailsDisclosure label="Details" className="mt-4 bg-black/20">
+              <div className="space-y-2 text-xs">
+                <div className="flex items-center justify-between gap-3">
+                  <span className="text-white/65">Token</span>
+                  <span className="text-white/80">USDC</span>
+                </div>
+                <div className="flex items-center justify-between gap-3">
+                  <span className="text-white/65">Network</span>
+                  <span className="text-white/80">
+                    {dotpayNetwork === "sepolia" ? "Arbitrum Sepolia" : "Arbitrum One"}
+                  </span>
+                </div>
+                <div className="flex items-center justify-between gap-3">
+                  <span className="text-white/65">Contract</span>
+                  <span className="font-mono text-white/80">{shortAddress(usdcAddress)}</span>
+                </div>
+              </div>
+            </DetailsDisclosure>
 
             {walletMissing && showReconnectCta && (
               <div className="mt-4 rounded-xl border border-white/10 bg-white/5 p-4">
@@ -696,45 +977,23 @@ export default function SendPage() {
                 </button>
               </div>
             )}
-          </article>
+            </article>
+          )}
 
           {step === "compose" && (
             <article className="rounded-2xl border border-white/10 bg-black/30 p-5">
               <div className="space-y-5">
                 <div>
-                  <p className="text-xs uppercase tracking-wide text-white/60">To</p>
-                  <div className="mt-2 grid grid-cols-4 gap-1 rounded-xl border border-white/10 bg-white/5 p-1 text-xs">
-                    {(
-                      [
-                        { id: "dotpay", label: "DotPay" },
-                        { id: "wallet", label: "Wallet" },
-                        { id: "email", label: "Email" },
-                        { id: "phone", label: "Phone" },
-                      ] as const
-                    ).map((tab) => {
-                      const selected = recipientKind === tab.id;
-                      return (
-                        <button
-                          key={tab.id}
-                          type="button"
-                          onClick={() => {
-                            setRecipientKind(tab.id);
-                            setRecipientInput("");
-                            setRecipientResolved(null);
-                            setRecipientStatus("idle");
-                            setRecipientMessage(null);
-                          }}
-                          className={`rounded-lg px-2 py-2 font-semibold transition ${
-                            selected
-                              ? "bg-white/10 text-white"
-                              : "text-white/60 hover:bg-white/5 hover:text-white/80"
-                          }`}
-                        >
-                          {tab.label}
-                        </button>
-                      );
-                    })}
-                  </div>
+	                  <div className="flex items-center justify-between gap-3">
+	                    <p className="text-xs uppercase tracking-wide text-white/60">To</p>
+	                    <button
+	                      type="button"
+	                      onClick={() => setStep("choose")}
+	                      className="text-xs font-semibold text-cyan-200 hover:text-cyan-100"
+	                    >
+	                      Change route
+	                    </button>
+	                  </div>
 
                   <div className="mt-3">
                     <div className="flex items-center justify-between">
@@ -811,7 +1070,7 @@ export default function SendPage() {
                               : "text-white/60 hover:bg-white/5 hover:text-white/80"
                           }`}
                         >
-                          KES
+                          KSh
                         </button>
                         <button
                           type="button"
@@ -840,7 +1099,7 @@ export default function SendPage() {
 
                   <div className="mt-2 flex items-center gap-2 rounded-xl border border-white/15 bg-white/5 px-3 py-2">
                     <div className="rounded-lg border border-white/10 bg-black/20 px-2 py-1 text-xs font-semibold text-white/80">
-                      {amountCurrency}
+                      {amountCurrency === "KES" ? "KSh" : "USD"}
                     </div>
                     <input
                       value={amountInput}
@@ -856,7 +1115,7 @@ export default function SendPage() {
                     <p className="mt-2 text-xs text-white/60">≈ {formatKes(amountKes)}</p>
                   )}
                   {!amountError && amountCurrency === "KES" && typeof amountUsdc === "number" && (
-                    <p className="mt-2 text-xs text-white/60">≈ {formatUsdc(amountUsdc)} USDC</p>
+                    <p className="mt-2 text-xs text-white/60">≈ {formatUsdc(amountUsdc)} USD</p>
                   )}
 
                   <div className="mt-3 grid grid-cols-4 gap-2">
@@ -924,7 +1183,7 @@ export default function SendPage() {
                       </p>
                     </div>
                     <span className="rounded-full border border-white/10 bg-black/30 px-2.5 py-1 text-[11px] text-white/70">
-                      USDC
+                      USD balance
                     </span>
                   </div>
 
@@ -934,7 +1193,7 @@ export default function SendPage() {
                       {typeof amountKes === "number" ? formatKes(amountKes) : "—"}
                     </p>
                     <p className="mt-1 text-xs text-white/60">
-                      {typeof amountUsdc === "number" ? `${formatUsdc(amountUsdc)} USDC` : "—"}
+                      {typeof amountUsdc === "number" ? `${formatUsdc(amountUsdc)} USD` : "—"}
                     </p>
                   </div>
 
@@ -957,11 +1216,19 @@ export default function SendPage() {
                   </div>
                 </div>
 
+                <PinKeyboardInput
+                  value={pin}
+                  onChange={setPin}
+                  length={PIN_LENGTH}
+                  label="Approve with PIN"
+                  helperText="You’ll use this PIN to authorize transfers."
+                />
+
                 <div className="grid grid-cols-2 gap-3">
                   <button
                     type="button"
                     onClick={() => setStep("compose")}
-                    disabled={isSending}
+                    disabled={isSending || authorizing}
                     className="rounded-xl border border-white/15 bg-white/5 px-4 py-3 text-sm font-semibold text-white/80 hover:bg-white/10 disabled:opacity-60"
                   >
                     Edit
@@ -969,16 +1236,16 @@ export default function SendPage() {
                   <button
                     type="button"
                     onClick={handleSubmit}
-                    disabled={isSending || walletMissing}
+                    disabled={isSending || authorizing || walletMissing}
                     className="inline-flex items-center justify-center gap-2 rounded-xl border border-cyan-300/35 bg-cyan-500/15 px-4 py-3 text-sm font-semibold text-cyan-50 hover:bg-cyan-500/25 disabled:cursor-not-allowed disabled:opacity-60"
                   >
-                    {isSending ? (
+                    {isSending || authorizing ? (
                       <>
                         <Loader2 className="h-4 w-4 animate-spin" />
-                        Sending…
+                        {authorizing && !isSending ? "Approving…" : "Sending…"}
                       </>
                     ) : (
-                      "Send USDC"
+                      "Send"
                     )}
                   </button>
                 </div>
@@ -999,12 +1266,12 @@ export default function SendPage() {
                         {typeof amountKes === "number"
                           ? formatKes(amountKes)
                           : typeof amountUsdc === "number"
-                            ? `${formatUsdc(amountUsdc)} USDC`
+                            ? `${formatUsdc(amountUsdc)} USD`
                             : "Payment sent"}
                       </h2>
                       {typeof amountKes === "number" && typeof amountUsdc === "number" && (
                         <p className="mt-1 text-xs text-white/60">
-                          {formatUsdc(amountUsdc)} USDC
+                          {formatUsdc(amountUsdc)} USD
                         </p>
                       )}
                       <p className="mt-1 text-xs text-white/60">
@@ -1047,6 +1314,15 @@ export default function SendPage() {
                     )}
                   </div>
                 )}
+
+                <button
+                  type="button"
+                  onClick={handleShareReceipt}
+                  className="inline-flex w-full items-center justify-center gap-2 rounded-xl border border-white/15 bg-white/5 px-4 py-3 text-sm font-semibold text-white/85 hover:bg-white/10"
+                >
+                  <Share2 className="h-4 w-4" />
+                  Share receipt
+                </button>
 
                 <div className="grid grid-cols-2 gap-3">
                   <button

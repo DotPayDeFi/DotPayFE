@@ -1,7 +1,8 @@
 import type { SessionUser } from "@/types/session-user";
 
-// Set NEXT_PUBLIC_DOTPAY_API_URL in .env (e.g. http://localhost:4000) so users sync to backend.
+// Set NEXT_PUBLIC_DOTPAY_API_URL in .env.local (e.g. http://localhost:4000) so users sync to backend.
 const API_URL = (process.env.NEXT_PUBLIC_DOTPAY_API_URL || "").trim().replace(/\/+$/, "");
+const BACKEND_PROXY_BASE = "/api/backend";
 
 export type BackendUserRecord = {
   id: string;
@@ -13,6 +14,8 @@ export type BackendUserRecord = {
   dotpayId: string | null;
   authMethod: SessionUser["authMethod"];
   thirdwebCreatedAt: string | null;
+  pinSet: boolean;
+  pinUpdatedAt: string | null;
   createdAt: string | null;
   updatedAt: string | null;
 };
@@ -25,7 +28,8 @@ export const isBackendApiConfigured = () => Boolean(API_URL);
 export async function checkBackendConnection(): Promise<boolean> {
   if (!isBackendApiConfigured()) return false;
   try {
-    const res = await fetch(`${API_URL}/health`, { method: "GET", cache: "no-store" });
+    // Use same-origin proxy to avoid CORS issues in production deployments.
+    const res = await fetch(`${BACKEND_PROXY_BASE}/health`, { method: "GET", cache: "no-store" });
     return res.ok;
   } catch {
     return false;
@@ -40,7 +44,8 @@ export async function syncUserToBackend(sessionUser: SessionUser): Promise<boole
   if (!isBackendApiConfigured()) return false;
   if (!sessionUser?.address) return false;
   try {
-    const res = await fetch(`${API_URL}/api/users`, {
+    // Use same-origin proxy to avoid CORS issues in production deployments.
+    const res = await fetch(`${BACKEND_PROXY_BASE}/users`, {
       method: "POST",
       headers: { "Content-Type": "application/json" },
       cache: "no-store",
@@ -79,10 +84,81 @@ const mapBackendUserRecord = (raw: any, fallbackAddress: string): BackendUserRec
     dotpayId: raw?.dotpayId ?? null,
     authMethod: raw?.authMethod ?? null,
     thirdwebCreatedAt: raw?.thirdwebCreatedAt ?? null,
+    pinSet: Boolean(raw?.pinSet),
+    pinUpdatedAt: raw?.pinUpdatedAt ?? null,
     createdAt: raw?.createdAt ?? null,
     updatedAt: raw?.updatedAt ?? null,
   };
 };
+
+/**
+ * Set (or update) the 6-digit app PIN for the authenticated user.
+ */
+export async function setUserPin(address: string, pin: string, oldPin?: string): Promise<{ pinSet: boolean; pinUpdatedAt: string | null }> {
+  if (!isBackendApiConfigured()) {
+    throw new Error("Backend API is not configured.");
+  }
+  const normalizedAddress = address?.trim()?.toLowerCase();
+  if (!normalizedAddress) {
+    throw new Error("address is required.");
+  }
+
+  // Use same-origin proxy: it will mint the backend bearer token server-side.
+  const res = await fetch(`${BACKEND_PROXY_BASE}/users/${encodeURIComponent(normalizedAddress)}/pin`, {
+    method: "PATCH",
+    headers: {
+      "Content-Type": "application/json",
+    },
+    cache: "no-store",
+    body: JSON.stringify({ pin, ...(oldPin ? { oldPin } : {}) }),
+  });
+
+  const payload = await res.json().catch(() => null);
+  if (!res.ok || !payload?.success) {
+    const message = payload?.message || "Failed to set PIN.";
+    throw new Error(message);
+  }
+
+  return {
+    pinSet: Boolean(payload?.data?.pinSet),
+    pinUpdatedAt: payload?.data?.pinUpdatedAt ?? null,
+  };
+}
+
+/**
+ * Verify a 6-digit app PIN for the authenticated user.
+ * Throws if invalid or not set.
+ */
+export async function verifyUserPin(address: string, pin: string): Promise<{ valid: true; pinUpdatedAt: string | null }> {
+  if (!isBackendApiConfigured()) {
+    throw new Error("Backend API is not configured.");
+  }
+  const normalizedAddress = address?.trim()?.toLowerCase();
+  if (!normalizedAddress) {
+    throw new Error("address is required.");
+  }
+
+  const res = await fetch(
+    `${BACKEND_PROXY_BASE}/users/${encodeURIComponent(normalizedAddress)}/pin/verify`,
+    {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      cache: "no-store",
+      body: JSON.stringify({ pin }),
+    }
+  );
+
+  const payload = await res.json().catch(() => null);
+  if (!res.ok || !payload?.success) {
+    const message = payload?.message || "Failed to verify PIN.";
+    throw new Error(message);
+  }
+
+  return {
+    valid: true,
+    pinUpdatedAt: payload?.data?.pinUpdatedAt ?? null,
+  };
+}
 
 /**
  * Load a user profile from backend by wallet address.
@@ -93,7 +169,8 @@ export async function getUserFromBackend(address: string): Promise<BackendUserRe
   if (!normalizedAddress) return null;
 
   try {
-    const res = await fetch(`${API_URL}/api/users/${encodeURIComponent(normalizedAddress)}`, {
+    // Use same-origin proxy to avoid CORS issues in production deployments.
+    const res = await fetch(`${BACKEND_PROXY_BASE}/users/${encodeURIComponent(normalizedAddress)}`, {
       method: "GET",
       cache: "no-store",
     });
@@ -132,7 +209,8 @@ export async function lookupUserFromBackend(query: string): Promise<BackendUserR
   if (!q) return null;
 
   try {
-    const res = await fetch(`${API_URL}/api/users/lookup?q=${encodeURIComponent(q)}`, {
+    // Use same-origin proxy to avoid CORS issues in production deployments.
+    const res = await fetch(`${BACKEND_PROXY_BASE}/users/lookup?q=${encodeURIComponent(q)}`, {
       method: "GET",
       cache: "no-store",
     });
@@ -177,7 +255,8 @@ export async function setDotpayIdentity(
   }
 
   try {
-    const res = await fetch(`${API_URL}/api/users/${encodeURIComponent(normalizedAddress)}/identity`, {
+    // Use same-origin proxy to avoid CORS issues in production deployments.
+    const res = await fetch(`${BACKEND_PROXY_BASE}/users/${encodeURIComponent(normalizedAddress)}/identity`, {
       method: "PATCH",
       headers: { "Content-Type": "application/json" },
       cache: "no-store",

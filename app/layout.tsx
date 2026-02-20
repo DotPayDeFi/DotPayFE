@@ -16,6 +16,7 @@ import { ThirdwebProvider } from "thirdweb/react";
 import { AuthSessionProvider } from "@/context/AuthSessionContext";
 import { AuthProvider } from "@/context/AuthContext";
 import { ThirdwebAutoConnect } from "@/components/auth/ThirdwebAutoConnect";
+import { AppShell } from "@/components/layout/AppShell";
 
 
 const inter = Inter({ subsets: ["latin"] });
@@ -23,11 +24,12 @@ const inter = Inter({ subsets: ["latin"] });
 export const metadata: Metadata = {
   applicationName: "DotPay",
   title: {
-    default: "DotPay - Stablecoin Wallet",
+    default: "DotPay - Mobile Wallet",
     template: "DotPay - %s",
   },
   metadataBase: new URL("https://app.dotpay.xyz"),
-  description: "Secure stablecoin payment wallet for fast, low-cost transactions. Send, receive, and manage your digital assets with ease.",
+  description:
+    "Send, pay, and cash out with a USD balance shown in KSh. Fast transfers, clear receipts, and M-Pesa-ready payments.",
   manifest: "/manifest.json",
   appleWebApp: {
     capable: true,
@@ -47,10 +49,10 @@ export const metadata: Metadata = {
     type: "website",
     siteName: "DotPay",
     title: {
-      default: "DotPay - Stablecoin Wallet",
+      default: "DotPay - Mobile Wallet",
       template: "DotPay - %s",
     },
-    description: "Secure stablecoin payment wallet for fast, low-cost transactions",
+    description: "Send, pay, and cash out with a USD balance shown in KSh.",
     images: [
       {
         url: "/icons/icon-512x512.png",
@@ -63,13 +65,13 @@ export const metadata: Metadata = {
   twitter: {
     card: "summary_large_image",
     title: {
-      default: "DotPay - Stablecoin Wallet",
+      default: "DotPay - Mobile Wallet",
       template: "DotPay - %s",
     },
-    description: "Secure stablecoin payment wallet for fast, low-cost transactions",
+    description: "Send, pay, and cash out with a USD balance shown in KSh.",
     images: ["/icons/icon-512x512.png"],
   },
-  keywords: ["stablecoin", "crypto", "wallet", "payments", "defi", "blockchain"],
+  keywords: ["payments", "wallet", "mpesa", "kenya", "ksh", "send money", "pay bills"],
   authors: [{ name: "DotPay Team" }],
   creator: "DotPay",
   publisher: "DotPay",
@@ -149,13 +151,13 @@ export default function RootLayout({
         
         <meta name="twitter:card" content="summary" />
         <meta name="twitter:url" content="https://app.dotpay.xyz" />
-        <meta name="twitter:title" content="DotPay - Stablecoin Wallet" />
-        <meta name="twitter:description" content="Secure stablecoin payment wallet for fast, low-cost transactions" />
+        <meta name="twitter:title" content="DotPay - Mobile Wallet" />
+        <meta name="twitter:description" content="Send, pay, and cash out with a USD balance shown in KSh." />
         <meta name="twitter:image" content="https://app.dotpay.xyz/icons/icon-192x192.png" />
         <meta name="twitter:creator" content="@dotpay" />
         <meta property="og:type" content="website" />
-        <meta property="og:title" content="DotPay - Stablecoin Wallet" />
-        <meta property="og:description" content="Secure stablecoin payment wallet for fast, low-cost transactions" />
+        <meta property="og:title" content="DotPay - Mobile Wallet" />
+        <meta property="og:description" content="Send, pay, and cash out with a USD balance shown in KSh." />
         <meta property="og:site_name" content="DotPay" />
         <meta property="og:url" content="https://app.dotpay.xyz" />
         <meta property="og:image" content="https://app.dotpay.xyz/icons/icon-512x512.png" />
@@ -191,7 +193,9 @@ export default function RootLayout({
                     <WalletProvider>
                       <ChainProvider>
                         <BalanceProvider>
-                          <ClientOnly>{children}</ClientOnly>
+                          <ClientOnly>
+                            <AppShell>{children}</AppShell>
+                          </ClientOnly>
                           {/* Temporarily hide install modal to keep auth/onboarding flow clean */}
                           {/* <PWAInstallPrompt /> */}
                           <PWAUpdateNotification />

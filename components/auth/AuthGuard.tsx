@@ -24,8 +24,8 @@ const AuthGuard: React.FC<AuthGuardProps> = ({
 
   if (!hasChecked || loading) {
     return (
-      <div className="min-h-screen flex items-center justify-center bg-gray-900">
-        <div className="animate-spin rounded-full h-8 w-8 border-2 border-[#0795B0] border-t-transparent"></div>
+      <div className="min-h-screen bg-app-bg bg-cover bg-center bg-no-repeat flex items-center justify-center px-4">
+        <div className="h-10 w-10 animate-spin rounded-full border-2 border-cyan-200/70 border-t-transparent" />
       </div>
     );
   }

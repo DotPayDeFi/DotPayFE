@@ -2,11 +2,11 @@
 
 import { useMemo } from "react";
 import Link from "next/link";
+import { useRouter } from "next/navigation";
 import { useSearchParams } from "next/navigation";
 import AuthGuard from "@/components/auth/AuthGuard";
-import { BuyCryptoForm } from "@/components/mpesa/BuyCryptoForm";
-import { PayWithCryptoForm } from "@/components/mpesa/PayWithCryptoForm";
-import { CryptoToMpesaForm } from "@/components/mpesa/CryptoToMpesaForm";
+import { MpesaTopupPanel } from "@/components/mpesa/MpesaTopupPanel";
+import { MpesaSendModePage } from "@/components/mpesa/MpesaSendModePage";
 
 type MpesaTab = "buy" | "pay" | "withdraw";
 
@@ -24,6 +24,7 @@ function parseTab(value: string | null): MpesaTab {
 
 export default function MpesaPage() {
   const searchParams = useSearchParams();
+  const router = useRouter();
   const activeTab = useMemo(() => parseTab(searchParams?.get("tab") ?? null), [searchParams]);
 
   return (
@@ -64,14 +65,44 @@ export default function MpesaPage() {
             })}
           </div>
 
-          <div className="rounded-2xl border border-white/10 bg-black/30 p-4">
-            {activeTab === "buy" && <BuyCryptoForm />}
-            {activeTab === "pay" && <PayWithCryptoForm />}
-            {activeTab === "withdraw" && <CryptoToMpesaForm />}
-          </div>
+          {activeTab === "buy" && (
+            <div className="rounded-2xl border border-white/10 bg-black/30 p-4">
+              <MpesaTopupPanel />
+            </div>
+          )}
+
+          {activeTab === "withdraw" && (
+            <MpesaSendModePage mode="cashout" onBack={() => router.push("/home")} />
+          )}
+
+          {activeTab === "pay" && (
+            <div className="rounded-2xl border border-white/10 bg-black/30 p-4">
+              <div className="space-y-3">
+                <button
+                  type="button"
+                  onClick={() => router.push("/pay/paybill")}
+                  className="w-full rounded-2xl border border-white/10 bg-white/5 p-4 text-left hover:bg-white/10"
+                >
+                  <p className="text-sm font-semibold text-white">PayBill</p>
+                  <p className="mt-1 text-xs text-white/65">
+                    Pay a business PayBill number with account reference.
+                  </p>
+                </button>
+                <button
+                  type="button"
+                  onClick={() => router.push("/pay/till")}
+                  className="w-full rounded-2xl border border-white/10 bg-white/5 p-4 text-left hover:bg-white/10"
+                >
+                  <p className="text-sm font-semibold text-white">Till (Buy Goods)</p>
+                  <p className="mt-1 text-xs text-white/65">
+                    Pay a Till number and complete with your DotPay PIN.
+                  </p>
+                </button>
+              </div>
+            </div>
+          )}
         </section>
       </main>
     </AuthGuard>
   );
 }
-
