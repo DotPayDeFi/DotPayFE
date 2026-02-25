@@ -5,9 +5,10 @@ import { ArrowLeft, CheckCircle2, Loader2, RefreshCw } from "lucide-react";
 import toast from "react-hot-toast";
 import { getContract, waitForReceipt } from "thirdweb";
 import { transfer } from "thirdweb/extensions/erc20";
-import { useActiveAccount, useSendTransaction } from "thirdweb/react";
+import { useActiveAccount, useConnectModal, useIsAutoConnecting, useSendTransaction } from "thirdweb/react";
 import { useMpesaFlows } from "@/hooks/useMpesaFlows";
 import { getDotPayNetwork, getDotPayUsdcChain } from "@/lib/dotpayNetwork";
+import { getDotPayAccountAbstraction } from "@/lib/thirdwebAccountAbstraction";
 import { formatKsh, shortHash } from "@/lib/format";
 import { toMpesaPhone } from "@/lib/kePhone";
 import { buildMpesaAuthorizationMessage } from "@/lib/mpesa-signing";
@@ -186,8 +187,36 @@ function normalizeSignature(value: unknown): string {
   return String(value).trim();
 }
 
+function extractErrorMessage(err: unknown): string {
+  if (err instanceof Error && err.message.trim()) return err.message.trim();
+  if (typeof err === "string" && err.trim()) return err.trim();
+
+  if (err && typeof err === "object") {
+    const e = err as any;
+    const candidates = [
+      e?.message,
+      e?.shortMessage,
+      e?.reason,
+      e?.details,
+      e?.error?.message,
+      e?.cause?.message,
+      e?.data?.message,
+    ];
+
+    for (const candidate of candidates) {
+      if (typeof candidate === "string" && candidate.trim()) {
+        return candidate.trim();
+      }
+    }
+  }
+
+  return "Failed to submit transaction.";
+}
+
 export function MpesaSendModePage({ mode, onBack }: { mode: SendMode; onBack: () => void }) {
   const account = useActiveAccount();
+  const { connect, isConnecting } = useConnectModal();
+  const isAutoConnecting = useIsAutoConnecting();
   const {
     createQuote,
     initiateOfframp,
@@ -202,6 +231,10 @@ export function MpesaSendModePage({ mode, onBack }: { mode: SendMode; onBack: ()
 
   const dotpayNetwork = getDotPayNetwork();
   const usdcChain = getDotPayUsdcChain(dotpayNetwork);
+  const accountAbstraction = useMemo(
+    () => getDotPayAccountAbstraction(usdcChain),
+    [usdcChain]
+  );
   const fallbackUsdcAddress =
     dotpayNetwork === "sepolia" ? USDC_ARBITRUM_SEPOLIA_ADDRESS : USDC_ARBITRUM_ONE_ADDRESS;
 
@@ -225,6 +258,7 @@ export function MpesaSendModePage({ mode, onBack }: { mode: SendMode; onBack: ()
 
   const labels = LABELS[mode];
   const flowType = FLOW_MAP[mode];
+  const canSignIntent = Boolean(account && typeof (account as any).signMessage === "function");
 
   useEffect(() => {
     if (typeof window === "undefined") return;
@@ -310,7 +344,7 @@ export function MpesaSendModePage({ mode, onBack }: { mode: SendMode; onBack: ()
 
   async function signIntent(tx: MpesaTransaction, signedAt: string, nonce: string) {
     if (!account || typeof (account as any).signMessage !== "function") {
-      throw new Error("Reconnect your account to authorize this transfer.");
+      throw new Error("Wallet signer is unavailable. Reconnect your wallet to authorize this transfer.");
     }
 
     const message = buildMpesaAuthorizationMessage({
@@ -325,6 +359,41 @@ export function MpesaSendModePage({ mode, onBack }: { mode: SendMode; onBack: ()
       throw new Error("Failed to generate a valid authorization signature. Reconnect and try again.");
     }
     return signature;
+  }
+
+  async function handleReconnectWallet() {
+    try {
+      const walletConnectProjectId = process.env.NEXT_PUBLIC_WALLETCONNECT_PROJECT_ID;
+      await connect({
+        client: thirdwebClient,
+        chain: usdcChain,
+        chains: [usdcChain],
+        accountAbstraction,
+        wallets: undefined,
+        recommendedWallets: undefined,
+        showAllWallets: false,
+        appMetadata: {
+          name: "DotPay",
+          url: "https://app.dotpay.xyz",
+          description: "Mobile wallet for fast payments and clear receipts.",
+          logoUrl: "https://app.dotpay.xyz/icons/icon-192x192.png",
+        },
+        theme: "dark",
+        connectModal: {
+          size: "compact",
+          showThirdwebBranding: false,
+          title: "Reconnect wallet",
+        },
+        walletConnect: walletConnectProjectId
+          ? {
+              projectId: walletConnectProjectId,
+            }
+          : undefined,
+      });
+    } catch (err) {
+      const message = err instanceof Error ? err.message : "Wallet reconnect failed.";
+      toast.error(message);
+    }
   }
 
   async function submitOnchainFunding(tx: MpesaTransaction) {
@@ -390,6 +459,7 @@ export function MpesaSendModePage({ mode, onBack }: { mode: SendMode; onBack: ()
       return;
     }
 
+    let phase = "start";
     try {
       setBusy(true);
       setStep("processing");
@@ -397,7 +467,9 @@ export function MpesaSendModePage({ mode, onBack }: { mode: SendMode; onBack: ()
 
       const signedAt = new Date().toISOString();
       const nonce = createNonce();
+      phase = "sign_intent";
       const signature = await signIntent(quoteTransaction, signedAt, nonce);
+      phase = "onchain_funding";
       const funding = await submitOnchainFunding(quoteTransaction);
       setProcessingLabel("Sending request to M-Pesa");
 
@@ -407,6 +479,7 @@ export function MpesaSendModePage({ mode, onBack }: { mode: SendMode; onBack: ()
 
       let initiated: MpesaTransaction;
       if (mode === "cashout") {
+        phase = "initiate_offramp";
         const response = await initiateOfframp({
           idempotencyKey,
           quoteId: quoteTransaction.quote.quoteId,
@@ -420,6 +493,7 @@ export function MpesaSendModePage({ mode, onBack }: { mode: SendMode; onBack: ()
         });
         initiated = response.data;
       } else if (mode === "paybill") {
+        phase = "initiate_paybill";
         const response = await initiatePaybill({
           idempotencyKey,
           quoteId: quoteTransaction.quote.quoteId,
@@ -434,6 +508,7 @@ export function MpesaSendModePage({ mode, onBack }: { mode: SendMode; onBack: ()
         });
         initiated = response.data;
       } else {
+        phase = "initiate_buygoods";
         const response = await initiateBuygoods({
           idempotencyKey,
           quoteId: quoteTransaction.quote.quoteId,
@@ -450,6 +525,7 @@ export function MpesaSendModePage({ mode, onBack }: { mode: SendMode; onBack: ()
       }
 
       setProcessingLabel("Waiting for M-Pesa confirmation");
+      phase = "poll_transaction";
       const terminal = await pollTransaction(initiated.transactionId, {
         intervalMs: 3500,
         timeoutMs: 120000,
@@ -477,7 +553,8 @@ export function MpesaSendModePage({ mode, onBack }: { mode: SendMode; onBack: ()
         setSaveFavorite(false);
       }
     } catch (err) {
-      const message = err instanceof Error ? err.message : "Failed to submit transaction.";
+      const message = extractErrorMessage(err);
+      console.error(`[M-Pesa FE] submit failed phase=${phase}`, err);
       toast.error(message);
       if (message.toLowerCase().includes("pin is not set")) {
         if (typeof window !== "undefined") {
@@ -538,6 +615,7 @@ export function MpesaSendModePage({ mode, onBack }: { mode: SendMode; onBack: ()
             ? `Till: ${tx.targets.tillNumber}`
             : "";
     const mpesaReceipt = tx.daraja.receiptNumber ? `M-Pesa receipt: ${tx.daraja.receiptNumber}` : "M-Pesa receipt: -";
+    const onchainTx = tx.onchain?.txHash ? `On-chain TX: ${tx.onchain.txHash}` : "On-chain TX: -";
 
     const text = [
       "DotPay receipt",
@@ -546,6 +624,7 @@ export function MpesaSendModePage({ mode, onBack }: { mode: SendMode; onBack: ()
       `Amount: ${amount}`,
       target,
       mpesaReceipt,
+      onchainTx,
       `Transaction ID: ${tx.transactionId}`,
     ]
       .filter(Boolean)
@@ -744,14 +823,6 @@ export function MpesaSendModePage({ mode, onBack }: { mode: SendMode; onBack: ()
                   <span>{mode === "cashout" ? "Recipient receives" : "Merchant receives"}</span>
                   <span>{formatKsh(quoteTransaction.quote.expectedReceiveKes, { maximumFractionDigits: 2 })}</span>
                 </div>
-                <div className="mt-1 flex justify-between text-white/70">
-                  <span>Fee</span>
-                  <span>{formatKsh(quoteTransaction.quote.feeAmountKes, { maximumFractionDigits: 2 })}</span>
-                </div>
-                <div className="mt-1 flex justify-between text-white/70">
-                  <span>Network fee</span>
-                  <span>{formatKsh(quoteTransaction.quote.networkFeeKes, { maximumFractionDigits: 2 })}</span>
-                </div>
 
                 <DetailsDisclosure label="Details" className="mt-3 bg-black/10">
                   <div className="space-y-1 text-xs">
@@ -801,13 +872,39 @@ export function MpesaSendModePage({ mode, onBack }: { mode: SendMode; onBack: ()
                 className="bg-black/25"
               />
 
+              {!canSignIntent && (
+                <div className="rounded-xl border border-amber-300/25 bg-amber-500/10 p-3 text-xs text-amber-100">
+                  <p>Wallet signer not ready. Reconnect wallet before confirming.</p>
+                  <button
+                    type="button"
+                    onClick={handleReconnectWallet}
+                    disabled={busy || isConnecting || isAutoConnecting}
+                    className="mt-2 rounded-lg border border-amber-200/30 bg-amber-500/20 px-3 py-1.5 font-medium hover:bg-amber-500/30 disabled:opacity-60"
+                  >
+                    {isConnecting || isAutoConnecting ? "Connecting..." : "Reconnect wallet"}
+                  </button>
+                </div>
+              )}
+
               <button
                 type="button"
                 onClick={handleConfirmAndSend}
-                disabled={busy || normalizePin(pin).length !== PIN_LENGTH}
+                disabled={
+                  busy ||
+                  isConnecting ||
+                  isAutoConnecting ||
+                  !canSignIntent ||
+                  normalizePin(pin).length !== PIN_LENGTH
+                }
                 className="w-full rounded-xl border border-emerald-300/20 bg-emerald-500/20 px-3 py-2 text-sm font-semibold text-emerald-100 hover:bg-emerald-500/30 disabled:opacity-60"
               >
-                {busy ? "Submitting..." : mode === "cashout" ? "Confirm cash out" : "Confirm payment"}
+                {busy
+                  ? "Submitting..."
+                  : !canSignIntent
+                    ? "Reconnect wallet to continue"
+                    : mode === "cashout"
+                      ? "Confirm cash out"
+                      : "Confirm payment"}
               </button>
             </div>
           )}

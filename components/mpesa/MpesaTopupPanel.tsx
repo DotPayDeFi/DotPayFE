@@ -96,6 +96,7 @@ export function MpesaTopupPanel() {
     const amount = formatKsh(tx.quote.totalDebitKes, { maximumFractionDigits: 2 });
     const phone = tx.targets.phoneNumber ? `Phone: ${tx.targets.phoneNumber}` : "";
     const mpesaReceipt = tx.daraja.receiptNumber ? `M-Pesa receipt: ${tx.daraja.receiptNumber}` : "M-Pesa receipt: -";
+    const onchainTx = tx.onchain?.txHash ? `On-chain TX: ${tx.onchain.txHash}` : "On-chain TX: -";
 
     const text = [
       "DotPay receipt",
@@ -104,6 +105,7 @@ export function MpesaTopupPanel() {
       `Amount: ${amount}`,
       phone,
       mpesaReceipt,
+      onchainTx,
       `Transaction ID: ${tx.transactionId}`,
     ]
       .filter(Boolean)
@@ -179,10 +181,6 @@ export function MpesaTopupPanel() {
               <span>DotPay credit</span>
               <span>{formatKsh(quoteTx.quote.expectedReceiveKes, { maximumFractionDigits: 2 })}</span>
             </div>
-            <div className="mt-1 flex justify-between text-white/70">
-              <span>Fee</span>
-              <span>{formatKsh(quoteTx.quote.feeAmountKes, { maximumFractionDigits: 2 })}</span>
-            </div>
             <DetailsDisclosure label="Details" className="mt-3 bg-black/10">
               <div className="space-y-1 text-xs">
                 <div className="flex justify-between gap-3">
@@ -254,6 +252,12 @@ export function MpesaTopupPanel() {
                   <span className="text-white/65">Result code</span>
                   <span className="text-white/80">
                     {resultTx.daraja.resultCode ?? resultTx.daraja.resultCodeRaw ?? "-"}
+                  </span>
+                </div>
+                <div className="flex justify-between gap-3">
+                  <span className="text-white/65">On-chain TX</span>
+                  <span className="font-mono text-white/80 break-all text-right">
+                    {resultTx.onchain?.txHash || "-"}
                   </span>
                 </div>
               </div>

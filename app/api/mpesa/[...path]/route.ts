@@ -6,9 +6,50 @@ function getBackendUrl() {
   return (process.env.NEXT_PUBLIC_DOTPAY_API_URL || "").trim().replace(/\/+$/, "");
 }
 
+function summarizeBody(raw: string | undefined) {
+  if (!raw) return {};
+  try {
+    const parsed = JSON.parse(raw);
+    if (!parsed || typeof parsed !== "object") return {};
+    const src = parsed as Record<string, unknown>;
+    const out: Record<string, unknown> = {};
+    const copy = (key: string) => {
+      const value = src[key];
+      if (value !== undefined && value !== null && value !== "") out[key] = value;
+    };
+
+    copy("flowType");
+    copy("quoteId");
+    copy("amount");
+    copy("currency");
+    copy("phoneNumber");
+    copy("paybillNumber");
+    copy("tillNumber");
+    copy("accountReference");
+    copy("businessId");
+    copy("chainId");
+    copy("onchainTxHash");
+
+    if ("pin" in src) out.pin = String(src.pin || "").trim() ? "provided" : "missing";
+    if ("signature" in src) {
+      const len = String(src.signature || "").trim().length;
+      out.signature = len > 0 ? `provided(len:${len})` : "missing";
+    }
+    if ("nonce" in src) out.nonce = String(src.nonce || "").trim() ? "provided" : "missing";
+    if ("signedAt" in src) out.signedAt = String(src.signedAt || "").trim() ? "provided" : "missing";
+
+    return out;
+  } catch {
+    return {};
+  }
+}
+
 async function proxy(request: NextRequest, params: { path: string[] }) {
+  const requestId = `${Date.now().toString(36)}${Math.random().toString(36).slice(2, 8)}`;
+  const startedAt = Date.now();
   const backendUrl = getBackendUrl();
   if (!backendUrl) {
+    console.error(`[FE M-Pesa Proxy] req=${requestId} missing NEXT_PUBLIC_DOTPAY_API_URL`);
     return NextResponse.json(
       { success: false, message: "NEXT_PUBLIC_DOTPAY_API_URL is not configured." },
       { status: 500 }
@@ -18,6 +59,7 @@ async function proxy(request: NextRequest, params: { path: string[] }) {
   const sessionUser = await getSessionUser();
   const address = sessionUser?.address?.trim()?.toLowerCase() || null;
   if (!address) {
+    console.warn(`[FE M-Pesa Proxy] req=${requestId} unauthorized: missing session address`);
     return NextResponse.json({ success: false, message: "Unauthorized." }, { status: 401 });
   }
 
@@ -25,6 +67,11 @@ async function proxy(request: NextRequest, params: { path: string[] }) {
   try {
     token = signBackendToken(address, 5 * 60);
   } catch (err) {
+    console.error(
+      `[FE M-Pesa Proxy] req=${requestId} token signing failed: ${
+        err instanceof Error ? err.message : "unknown error"
+      }`
+    );
     return NextResponse.json(
       { success: false, message: err instanceof Error ? err.message : "Token signing failed." },
       { status: 500 }
@@ -56,6 +103,14 @@ async function proxy(request: NextRequest, params: { path: string[] }) {
     }
   }
 
+  console.info(
+    `[FE M-Pesa Proxy] req=${requestId} start method=${method} path=/api/mpesa/${joinedPath}${
+      request.nextUrl.search ? request.nextUrl.search : ""
+    } user=${address} target=${backendTarget.toString()} idem=${
+      idempotency || "-"
+    } body=${JSON.stringify(summarizeBody(body))}`
+  );
+
   try {
     const response = await fetch(backendTarget.toString(), {
       method,
@@ -65,13 +120,30 @@ async function proxy(request: NextRequest, params: { path: string[] }) {
     });
 
     const text = await response.text();
+    let backendMessage = "";
+    try {
+      const parsed = text ? JSON.parse(text) : {};
+      backendMessage = String((parsed as { message?: string })?.message || "").trim();
+    } catch {
+      backendMessage = "";
+    }
+    console.info(
+      `[FE M-Pesa Proxy] req=${requestId} finish status=${response.status} durationMs=${
+        Date.now() - startedAt
+      } message=${backendMessage || "-"}`
+    );
     return new NextResponse(text || "{}", {
       status: response.status,
       headers: {
         "content-type": response.headers.get("content-type") || "application/json",
       },
     });
-  } catch {
+  } catch (err) {
+    console.error(
+      `[FE M-Pesa Proxy] req=${requestId} backend fetch failed after ${
+        Date.now() - startedAt
+      }ms: ${err instanceof Error ? err.message : "unknown error"}`
+    );
     return NextResponse.json(
       { success: false, message: "Failed to reach backend M-Pesa service." },
       { status: 502 }
