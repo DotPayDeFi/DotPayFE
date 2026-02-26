@@ -29,6 +29,7 @@ export type MpesaQuote = {
 
 export type MpesaTargets = {
   phoneNumber?: string | null;
+  walletAddress?: string | null;
   paybillNumber?: string | null;
   tillNumber?: string | null;
   accountReference?: string | null;
@@ -105,11 +106,54 @@ export type MpesaApiEnvelope<T> = {
   idempotent?: boolean;
 };
 
+export type PlatformLiquidityState = {
+  asOf: string;
+  onchain: {
+    treasuryAddress: string;
+    usdcContract: string;
+    usdcDecimals: number;
+    chainId: number | null;
+    usdcBalanceUnits: string;
+    usdcBalanceUsd: number;
+    nativeBalanceWei: string;
+    nativeBalanceEth: number;
+    reservedOnrampCreditUsd: number;
+    availableForOnrampUsd: number;
+    minNativeGasEth: number;
+  };
+  mpesa: {
+    seedBalanceKes: number;
+    manualAdjustmentKes: number;
+    inflowSucceededKes: number;
+    outflowSucceededKes: number;
+    trackedBalanceKes: number;
+    reservedOutflowKes: number;
+    minReserveKes: number;
+    availableForPayoutKes: number;
+  };
+};
+
+export type LiquidityPrecheckPayload = {
+  quoteId?: string;
+  flowType?: MpesaFlowType;
+  amount?: number;
+  currency?: "KES" | "USD";
+};
+
+export type LiquidityPrecheckResult = {
+  canProceed: boolean;
+  flowType?: MpesaFlowType;
+  quote?: MpesaQuote;
+  state: PlatformLiquidityState | null;
+  message?: string;
+};
+
 export type CreateMpesaQuotePayload = {
   flowType: MpesaFlowType;
   amount: number;
   currency?: "KES" | "USD";
   phoneNumber?: string;
+  walletAddress?: string;
   paybillNumber?: string;
   tillNumber?: string;
   accountReference?: string;
@@ -122,6 +166,7 @@ export type InitiateOnrampPayload = {
   amount?: number;
   currency?: "KES" | "USD";
   phoneNumber: string;
+  walletAddress?: string;
   businessId?: string;
 };
 
@@ -133,6 +178,7 @@ export type InitiateOfframpPayload = {
   phoneNumber: string;
   pin: string;
   signature: string;
+  signerAddress?: string;
   signedAt?: string;
   nonce?: string;
   onchainTxHash?: string;
@@ -149,6 +195,7 @@ export type InitiatePaybillPayload = {
   accountReference: string;
   pin: string;
   signature: string;
+  signerAddress?: string;
   signedAt?: string;
   nonce?: string;
   onchainTxHash?: string;
@@ -165,6 +212,7 @@ export type InitiateBuygoodsPayload = {
   accountReference?: string;
   pin: string;
   signature: string;
+  signerAddress?: string;
   signedAt?: string;
   nonce?: string;
   onchainTxHash?: string;

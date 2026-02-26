@@ -191,7 +191,14 @@ function BlurredValue({
 export default function ActivityPage() {
   const router = useRouter();
   const { address, sessionUser } = useAuthSession();
-  const profileAddress = useMemo(() => sessionUser?.address || address || null, [address, sessionUser?.address]);
+  const sessionAddress = useMemo(
+    () => (sessionUser?.address || "").trim().toLowerCase() || null,
+    [sessionUser?.address]
+  );
+  const onchainAddress = useMemo(
+    () => (address || sessionAddress || "").trim().toLowerCase() || null,
+    [address, sessionAddress]
+  );
   const network = getDotPayNetwork();
   const backendConfigured = isBackendApiConfigured();
 
@@ -206,7 +213,7 @@ export default function ActivityPage() {
   const { data: kesRate } = useKesRate();
   const kesPerUsd = kesRate?.kesPerUsd ?? 155;
 
-  const onchainQuery = useOnchainActivity({ address: profileAddress, network, limit: 25 });
+  const onchainQuery = useOnchainActivity({ address: onchainAddress, network, limit: 25 });
 
   const mpesaQuery = useQuery<MpesaTransaction[]>({
     queryKey: ["mpesa", "transactions", 50],
@@ -241,18 +248,18 @@ export default function ActivityPage() {
       }
     }
 
-    if (profileAddress && Array.isArray(onchainQuery.data)) {
+    if (onchainAddress && Array.isArray(onchainQuery.data)) {
       for (const t of onchainQuery.data) {
         const amountUsdc = unitsToNumber(t.value, t.tokenDecimal);
         const kesAmount = typeof amountUsdc === "number" ? amountUsdc * kesPerUsd : null;
         out.push({
           id: t.hash,
           kind: "transfer",
-          category: transferCategory(t, profileAddress),
-          title: transferTitle(t, profileAddress),
-          subtitle: transferSubtitle(t, profileAddress),
+          category: transferCategory(t, onchainAddress),
+          title: transferTitle(t, onchainAddress),
+          subtitle: transferSubtitle(t, onchainAddress),
           amountKes: kesAmount,
-          direction: transferDirection(t, profileAddress),
+          direction: transferDirection(t, onchainAddress),
           status: statusForTransfer(),
           createdAt: t.timeStamp ? new Date(t.timeStamp * 1000).toISOString() : null,
           snapshot: { kind: "transfer", transfer: t, kesPerUsd },
@@ -265,7 +272,7 @@ export default function ActivityPage() {
       const bt = b.createdAt ? new Date(b.createdAt).getTime() : 0;
       return bt - at;
     });
-  }, [kesPerUsd, mpesaQuery.data, onchainQuery.data, profileAddress]);
+  }, [kesPerUsd, mpesaQuery.data, onchainAddress, onchainQuery.data]);
 
   const filtered = useMemo(() => {
     if (filter === "all") return items;

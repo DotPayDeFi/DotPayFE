@@ -4,8 +4,11 @@ import {
   InitiateOfframpPayload,
   InitiateOnrampPayload,
   InitiatePaybillPayload,
+  LiquidityPrecheckPayload,
+  LiquidityPrecheckResult,
   MpesaApiEnvelope,
   MpesaTransaction,
+  PlatformLiquidityState,
 } from "@/types/mpesa";
 
 function toJson<T>(input: string): T {
@@ -134,5 +137,19 @@ export const mpesaClient = {
     if (filters.limit) params.set("limit", String(filters.limit));
     const query = params.toString();
     return request(`transactions${query ? `?${query}` : ""}`);
+  },
+
+  getLiquidityState: async (forceRefresh = false): Promise<MpesaApiEnvelope<PlatformLiquidityState>> => {
+    const query = forceRefresh ? "?force=true" : "";
+    return request(`liquidity/state${query}`);
+  },
+
+  precheckLiquidity: async (
+    payload: LiquidityPrecheckPayload
+  ): Promise<MpesaApiEnvelope<LiquidityPrecheckResult>> => {
+    return request("liquidity/precheck", {
+      method: "POST",
+      body: JSON.stringify(payload),
+    });
   },
 };

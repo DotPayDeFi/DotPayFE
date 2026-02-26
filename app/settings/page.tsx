@@ -242,6 +242,25 @@ export default function SettingsPage() {
               </div>
 
               <div className="rounded-xl border border-white/10 bg-white/5 p-4">
+                <div className="flex items-center justify-between gap-3">
+                  <div className="min-w-0">
+                    <p className="text-xs text-white/60">Wallet address</p>
+                    <p className="mt-1 break-all font-mono text-xs text-white/80">{walletAddress || "—"}</p>
+                  </div>
+                  {walletAddress && (
+                    <button
+                      type="button"
+                      onClick={() => copyText(walletAddress, "Wallet address")}
+                      className="inline-flex items-center gap-2 rounded-xl border border-white/15 bg-black/20 px-3 py-2 text-xs font-semibold text-white/80 hover:bg-black/30"
+                    >
+                      <Copy className="h-4 w-4" />
+                      Copy
+                    </button>
+                  )}
+                </div>
+              </div>
+
+              <div className="rounded-xl border border-white/10 bg-white/5 p-4">
                 <label className="text-xs text-white/70">Confirmation name</label>
                 <div className="mt-2 flex items-center gap-2 rounded-xl border border-white/15 bg-black/20 px-3 py-2">
                   <span className="text-sm text-white/60">@</span>

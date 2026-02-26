@@ -1,9 +1,6 @@
-/* eslint-disable react-hooks/exhaustive-deps */
 "use client";
 
-import { Button } from "@/components/ui/button";
 import { useEffect } from "react";
-import toast from "react-hot-toast";
 
 export default function Error({
   error,
@@ -13,8 +10,10 @@ export default function Error({
   reset: () => void;
 }) {
   useEffect(() => {
-    toast.error(error.message);
-  }, []);
+    // Keep this boundary dependency-light so it always renders, even if
+    // other UI modules fail to load during hot reload/build churn.
+    console.error("App route error boundary:", error);
+  }, [error]);
 
   return (
     <main className="min-h-screen bg-app-bg bg-cover bg-center bg-no-repeat px-4 text-white flex items-center justify-center">
@@ -25,19 +24,20 @@ export default function Error({
         </p>
 
         <div className="mt-6 grid grid-cols-1 gap-3">
-          <Button
+          <button
+            type="button"
             onClick={() => reset()}
-            className="w-full bg-[#0795B0] hover:bg-[#0795B0]/90 text-white"
+            className="w-full rounded-xl bg-[#0795B0] px-4 py-2.5 font-semibold text-white hover:bg-[#0795B0]/90"
           >
             Try again
-          </Button>
-          <Button
-            variant="outline"
+          </button>
+          <button
+            type="button"
             onClick={() => window.location.assign("/home")}
-            className="w-full border-white/20 text-white hover:bg-white/10"
+            className="w-full rounded-xl border border-white/20 px-4 py-2.5 font-semibold text-white hover:bg-white/10"
           >
             Go to Home
-          </Button>
+          </button>
         </div>
 
         {process.env.NODE_ENV !== "production" && (

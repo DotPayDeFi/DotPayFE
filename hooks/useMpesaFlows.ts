@@ -9,6 +9,8 @@ import {
   InitiateOfframpPayload,
   InitiateOnrampPayload,
   InitiatePaybillPayload,
+  LiquidityPrecheckPayload,
+  PlatformLiquidityState,
   MpesaTransaction,
   MpesaTransactionStatus,
 } from "@/types/mpesa";
@@ -44,6 +46,17 @@ export function useMpesaFlows() {
   const getTransaction = useCallback(async (transactionId: string) => {
     const data = await mpesaClient.getTransaction(transactionId);
     queryClient.setQueryData(["mpesa", "transaction", transactionId], data.data);
+    return data.data;
+  }, [queryClient]);
+
+  const precheckLiquidity = useCallback(async (payload: LiquidityPrecheckPayload) => {
+    const data = await mpesaClient.precheckLiquidity(payload);
+    return data.data;
+  }, []);
+
+  const getLiquidityState = useCallback(async (forceRefresh = false): Promise<PlatformLiquidityState> => {
+    const data = await mpesaClient.getLiquidityState(forceRefresh);
+    queryClient.setQueryData(["mpesa", "liquidity"], data.data);
     return data.data;
   }, [queryClient]);
 
@@ -104,6 +117,8 @@ export function useMpesaFlows() {
     buygoodsState: buygoodsMutation,
 
     getTransaction,
+    precheckLiquidity,
+    getLiquidityState,
     pollTransaction,
     stopPolling,
   };

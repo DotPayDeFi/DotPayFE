@@ -319,7 +319,18 @@ export default function HomePage() {
   }, []);
 
   const backendConfigured = isBackendApiConfigured();
-  const profileAddress = useMemo(() => sessionUser?.address || address || null, [address, sessionUser?.address]);
+  const sessionAddress = useMemo(
+    () => (sessionUser?.address || "").trim().toLowerCase() || null,
+    [sessionUser?.address]
+  );
+  const onchainAddress = useMemo(
+    () => (address || sessionAddress || "").trim().toLowerCase() || null,
+    [address, sessionAddress]
+  );
+  const profileAddress = useMemo(
+    () => sessionAddress || onchainAddress || null,
+    [onchainAddress, sessionAddress]
+  );
   const hasActiveConnection = Boolean(address);
 
   const {
@@ -377,7 +388,7 @@ export default function HomePage() {
   }, [loadBackendProfile]);
 
   const activityQuery = useOnchainActivity({
-    address: profileAddress,
+    address: onchainAddress,
     network,
     limit: 12,
   });
@@ -403,11 +414,11 @@ export default function HomePage() {
       }
     }
 
-    if (profileAddress && Array.isArray(activityQuery.data)) {
+    if (onchainAddress && Array.isArray(activityQuery.data)) {
       for (const t of activityQuery.data) {
         // Onchain transfers typically include a hash; skip anything that can't render a receipt.
         if (!t?.hash) continue;
-        out.push(activityFromTransfer(t, profileAddress, kesPerUsd));
+        out.push(activityFromTransfer(t, onchainAddress, kesPerUsd));
       }
     }
 
@@ -418,7 +429,7 @@ export default function HomePage() {
         return bt - at;
       })
       .slice(0, 5);
-  }, [activityQuery.data, backendConfigured, kesPerUsd, mpesaRecentQuery.data, profileAddress]);
+  }, [activityQuery.data, backendConfigured, kesPerUsd, mpesaRecentQuery.data, onchainAddress]);
 
   const chain = getDotPayUsdcChain(dotpayNetwork);
   const usdcAddress = dotpayNetwork === "sepolia" ? USDC_ARBITRUM_SEPOLIA_ADDRESS : USDC_ARBITRUM_ONE_ADDRESS;
@@ -441,9 +452,9 @@ export default function HomePage() {
     refetch: refetchUsdcBalance,
   } = useReadContract(getBalance, {
     contract: usdcContract,
-    address: profileAddress ?? ZERO_ADDRESS,
+    address: onchainAddress ?? ZERO_ADDRESS,
     queryOptions: {
-      enabled: Boolean(profileAddress),
+      enabled: Boolean(onchainAddress),
     },
   });
 
@@ -678,7 +689,7 @@ export default function HomePage() {
                     </p>
                   ) : usdcBalanceError ? (
                     <p className="text-sm text-white/75">Balance unavailable</p>
-                  ) : !profileAddress ? (
+                  ) : !onchainAddress ? (
                     <p className="text-sm text-white/75">Reconnect to view balance</p>
                   ) : (
                     <Skeleton className="h-10 w-64" />
@@ -695,7 +706,7 @@ export default function HomePage() {
                         </span>
                       ) : usdcBalanceError ? (
                         <span className="text-white/60">Balance unavailable</span>
-                      ) : profileAddress ? (
+                      ) : onchainAddress ? (
                         <Skeleton className="h-4 w-24" />
                       ) : (
                         <span className="text-white/60">—</span>
@@ -738,6 +749,12 @@ export default function HomePage() {
                         <span className="text-white/65">Network</span>
                         <span className="text-white/80">
                           {dotpayNetwork === "sepolia" ? "Arbitrum Sepolia" : "Arbitrum One"}
+                        </span>
+                      </div>
+                      <div className="flex items-center justify-between gap-3">
+                        <span className="text-white/65">Wallet in use</span>
+                        <span className="font-mono text-white/80">
+                          {onchainAddress ? shortAddress(onchainAddress) : "—"}
                         </span>
                       </div>
                       <div className="flex items-center justify-between gap-3">

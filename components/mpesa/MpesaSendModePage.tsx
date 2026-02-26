@@ -10,6 +10,14 @@ import { useMpesaFlows } from "@/hooks/useMpesaFlows";
 import { getDotPayNetwork, getDotPayUsdcChain } from "@/lib/dotpayNetwork";
 import { formatKsh, shortHash } from "@/lib/format";
 import { toMpesaPhone } from "@/lib/kePhone";
+import {
+  buildMpesaShareText,
+  formatReceiptDateTime,
+  mpesaFlowLabel,
+  mpesaResultCode,
+  mpesaStatusLabel,
+  mpesaTimelineLabel,
+} from "@/lib/receipt";
 import { buildMpesaAuthorizationMessage } from "@/lib/mpesa-signing";
 import { thirdwebClient } from "@/lib/thirdwebClient";
 import { MpesaFlowType, MpesaTransaction } from "@/types/mpesa";
@@ -88,25 +96,6 @@ function upsertTillFavorite(
   return [next, ...filtered].slice(0, FAVORITES_MAX);
 }
 
-const FRIENDLY_TIMELINE_LABELS: Record<string, string> = {
-  created: "Created",
-  quoted: "Quote created",
-  awaiting_user_authorization: "Approved in DotPay",
-  awaiting_onchain_funding: "Processing payment",
-  mpesa_submitted: "Sent request to M-Pesa",
-  mpesa_processing: "Waiting for M-Pesa confirmation",
-  succeeded: "Completed",
-  failed: "Failed",
-  refund_pending: "Refunding",
-  refunded: "Refunded",
-};
-
-function timelineLabel(value: string) {
-  const key = String(value || "").trim();
-  if (!key) return "Update";
-  return FRIENDLY_TIMELINE_LABELS[key] || key.replace(/_/g, " ");
-}
-
 const FLOW_MAP: Record<SendMode, MpesaFlowType> = {
   cashout: "offramp",
   paybill: "paybill",
@@ -151,6 +140,20 @@ function normalizePin(value: string) {
   return String(value || "").replace(/\D/g, "").slice(0, PIN_LENGTH);
 }
 
+function receiptStatusClasses(status: MpesaTransaction["status"]) {
+  if (status === "succeeded") return "border-cyan-300/25 bg-cyan-500/10 text-cyan-100";
+  if (status === "failed") return "border-red-300/25 bg-red-500/10 text-red-100";
+  if (status === "refunded") return "border-white/20 bg-white/10 text-white/85";
+  return "border-white/15 bg-white/5 text-white/75";
+}
+
+function receiptStatusIconClass(status: MpesaTransaction["status"]) {
+  if (status === "succeeded") return "text-cyan-300";
+  if (status === "failed") return "text-red-300";
+  if (status === "refunded") return "text-white/85";
+  return "text-white/75";
+}
+
 function normalizeSignature(value: unknown): string {
   if (!value) return "";
 
@@ -193,6 +196,7 @@ export function MpesaSendModePage({ mode, onBack }: { mode: SendMode; onBack: ()
     initiateOfframp,
     initiatePaybill,
     initiateBuygoods,
+    precheckLiquidity,
     pollTransaction,
     getTransaction,
   } = useMpesaFlows();
@@ -393,12 +397,22 @@ export function MpesaSendModePage({ mode, onBack }: { mode: SendMode; onBack: ()
     try {
       setBusy(true);
       setStep("processing");
-      setProcessingLabel("Approving payment");
+      setProcessingLabel("Checking availability");
 
+      const precheck = await precheckLiquidity({
+        quoteId: quoteTransaction.quote.quoteId,
+        flowType,
+      });
+      if (!precheck.canProceed) {
+        throw new Error(precheck.message || "Transaction cannot proceed right now.");
+      }
+
+      setProcessingLabel("Approving payment");
       const signedAt = new Date().toISOString();
       const nonce = createNonce();
       const signature = await signIntent(quoteTransaction, signedAt, nonce);
       const funding = await submitOnchainFunding(quoteTransaction);
+      const signerAddress = account?.address ? String(account.address).trim().toLowerCase() : undefined;
       setProcessingLabel("Sending request to M-Pesa");
 
       const idempotencyKey =
@@ -413,6 +427,7 @@ export function MpesaSendModePage({ mode, onBack }: { mode: SendMode; onBack: ()
           phoneNumber: normalizedMpesaPhone || phoneNumber.trim(),
           pin: normalizedPin,
           signature,
+          signerAddress,
           signedAt,
           nonce,
           onchainTxHash: funding.onchainTxHash,
@@ -427,6 +442,7 @@ export function MpesaSendModePage({ mode, onBack }: { mode: SendMode; onBack: ()
           accountReference: accountReference.trim(),
           pin: normalizedPin,
           signature,
+          signerAddress,
           signedAt,
           nonce,
           onchainTxHash: funding.onchainTxHash,
@@ -441,6 +457,7 @@ export function MpesaSendModePage({ mode, onBack }: { mode: SendMode; onBack: ()
           accountReference: accountReference.trim() || "DotPay",
           pin: normalizedPin,
           signature,
+          signerAddress,
           signedAt,
           nonce,
           onchainTxHash: funding.onchainTxHash,
@@ -520,36 +537,7 @@ export function MpesaSendModePage({ mode, onBack }: { mode: SendMode; onBack: ()
   }
 
   async function shareReceipt(tx: MpesaTransaction) {
-    const amount = formatKsh(tx.quote.totalDebitKes, { maximumFractionDigits: 2 });
-    const kind =
-      tx.flowType === "offramp"
-        ? "Cash out"
-        : tx.flowType === "onramp"
-          ? "Top up"
-          : tx.flowType === "paybill"
-            ? "PayBill"
-            : "Till";
-    const target =
-      tx.targets.phoneNumber
-        ? `Phone: ${tx.targets.phoneNumber}`
-        : tx.targets.paybillNumber
-          ? `PayBill: ${tx.targets.paybillNumber}`
-          : tx.targets.tillNumber
-            ? `Till: ${tx.targets.tillNumber}`
-            : "";
-    const mpesaReceipt = tx.daraja.receiptNumber ? `M-Pesa receipt: ${tx.daraja.receiptNumber}` : "M-Pesa receipt: -";
-
-    const text = [
-      "DotPay receipt",
-      `Type: ${kind}`,
-      `Status: ${tx.status}`,
-      `Amount: ${amount}`,
-      target,
-      mpesaReceipt,
-      `Transaction ID: ${tx.transactionId}`,
-    ]
-      .filter(Boolean)
-      .join("\n");
+    const text = buildMpesaShareText(tx);
 
     if (navigator.share) {
       try {
@@ -836,15 +824,51 @@ export function MpesaSendModePage({ mode, onBack }: { mode: SendMode; onBack: ()
 
           {step === "receipt" && resultTransaction && (
             <div className="mt-5 space-y-3 text-sm">
-              <div className="flex items-center gap-2">
-                <CheckCircle2 className="h-5 w-5 text-emerald-300" />
-                <span className="font-semibold">Transaction {resultTransaction.status}</span>
+              <div className="flex items-center justify-between gap-3">
+                <div className="flex items-center gap-2">
+                  <CheckCircle2 className={`h-5 w-5 ${receiptStatusIconClass(resultTransaction.status)}`} />
+                  <span className="font-semibold">{mpesaFlowLabel(resultTransaction.flowType)}</span>
+                </div>
+                <span
+                  className={`rounded-full border px-2.5 py-1 text-[11px] font-semibold ${receiptStatusClasses(resultTransaction.status)}`}
+                >
+                  {mpesaStatusLabel(resultTransaction.status)}
+                </span>
               </div>
 
               <div className="rounded-xl border border-white/10 bg-white/5 p-4">
                 <div className="flex justify-between">
-                  <span>Amount</span>
+                  <span>Total debit</span>
                   <strong>{formatKsh(resultTransaction.quote.totalDebitKes, { maximumFractionDigits: 2 })}</strong>
+                </div>
+                {resultTransaction.flowType === "onramp" ? (
+                  <>
+                    <div className="mt-1 flex justify-between text-white/70">
+                      <span>Wallet credit</span>
+                      <span>{formatKsh(resultTransaction.quote.expectedReceiveKes, { maximumFractionDigits: 2 })}</span>
+                    </div>
+                    <div className="mt-1 flex justify-between text-white/70">
+                      <span>USD credit</span>
+                      <span>{resultTransaction.quote.amountUsd.toFixed(6)} USD</span>
+                    </div>
+                  </>
+                ) : (
+                  <div className="mt-1 flex justify-between text-white/70">
+                    <span>M-Pesa amount</span>
+                    <span>{formatKsh(resultTransaction.quote.expectedReceiveKes, { maximumFractionDigits: 2 })}</span>
+                  </div>
+                )}
+                <div className="mt-1 flex justify-between text-white/70">
+                  <span>Fee</span>
+                  <span>{formatKsh(resultTransaction.quote.feeAmountKes, { maximumFractionDigits: 2 })}</span>
+                </div>
+                <div className="mt-1 flex justify-between text-white/70">
+                  <span>Network fee</span>
+                  <span>{formatKsh(resultTransaction.quote.networkFeeKes, { maximumFractionDigits: 2 })}</span>
+                </div>
+                <div className="mt-1 flex justify-between text-white/70">
+                  <span>Exchange rate</span>
+                  <span>{formatKsh(resultTransaction.quote.rateKesPerUsd, { maximumFractionDigits: 2 })} / USD</span>
                 </div>
 
                 {resultTransaction.flowType === "offramp" && resultTransaction.targets.phoneNumber && (
@@ -887,10 +911,18 @@ export function MpesaSendModePage({ mode, onBack }: { mode: SendMode; onBack: ()
                   <span>{resultTransaction.daraja.receiptNumber || "-"}</span>
                 </div>
                 <div className="mt-1 flex justify-between text-white/70">
+                  <span>Result code</span>
+                  <span>{mpesaResultCode(resultTransaction)}</span>
+                </div>
+                <div className="mt-1 flex justify-between text-white/70">
                   <span>Result</span>
                   <span className="max-w-[60%] text-right text-white/80">
                     {resultTransaction.daraja.resultDesc || "-"}
                   </span>
+                </div>
+                <div className="mt-1 flex justify-between text-white/70">
+                  <span>Updated</span>
+                  <span>{formatReceiptDateTime(resultTransaction.updatedAt || resultTransaction.createdAt)}</span>
                 </div>
               </div>
 
@@ -915,15 +947,29 @@ export function MpesaSendModePage({ mode, onBack }: { mode: SendMode; onBack: ()
                 <div className="space-y-2 text-xs">
                   <div className="flex justify-between gap-3">
                     <span className="text-white/65">Transaction ID</span>
-                    <span className="font-mono text-white/80">{resultTransaction.transactionId}</span>
+                    <span className="font-mono text-white/80 break-all text-right">{resultTransaction.transactionId}</span>
+                  </div>
+                  <div className="flex justify-between gap-3">
+                    <span className="text-white/65">Quote ID</span>
+                    <span className="font-mono text-white/80 break-all text-right">{resultTransaction.quote.quoteId}</span>
                   </div>
                   <div className="flex justify-between gap-3">
                     <span className="text-white/65">Flow</span>
-                    <span className="text-white/80">{resultTransaction.flowType}</span>
+                    <span className="text-white/80">{mpesaFlowLabel(resultTransaction.flowType)}</span>
                   </div>
                   <div className="flex justify-between gap-3">
                     <span className="text-white/65">Status</span>
-                    <span className="text-white/80">{resultTransaction.status}</span>
+                    <span className="text-white/80">{mpesaStatusLabel(resultTransaction.status)}</span>
+                  </div>
+                  <div className="flex justify-between gap-3">
+                    <span className="text-white/65">Created</span>
+                    <span className="text-white/80 text-right">{formatReceiptDateTime(resultTransaction.createdAt)}</span>
+                  </div>
+                  <div className="flex justify-between gap-3">
+                    <span className="text-white/65">Last updated</span>
+                    <span className="text-white/80 text-right">
+                      {formatReceiptDateTime(resultTransaction.updatedAt || resultTransaction.createdAt)}
+                    </span>
                   </div>
                   <div className="flex justify-between gap-3">
                     <span className="text-white/65">Funding TX</span>
@@ -933,10 +979,46 @@ export function MpesaSendModePage({ mode, onBack }: { mode: SendMode; onBack: ()
                   </div>
                   <div className="flex justify-between gap-3">
                     <span className="text-white/65">Result code</span>
-                    <span className="text-white/80">
-                      {resultTransaction.daraja.resultCode ?? resultTransaction.daraja.resultCodeRaw ?? "-"}
-                    </span>
+                    <span className="text-white/80">{mpesaResultCode(resultTransaction)}</span>
                   </div>
+                  {resultTransaction.onchain?.chainId && (
+                    <div className="flex justify-between gap-3">
+                      <span className="text-white/65">Chain ID</span>
+                      <span className="text-white/80">{resultTransaction.onchain.chainId}</span>
+                    </div>
+                  )}
+                  {resultTransaction.daraja.merchantRequestId && (
+                    <div className="flex justify-between gap-3">
+                      <span className="text-white/65">Merchant request ID</span>
+                      <span className="font-mono text-white/80 break-all text-right">{resultTransaction.daraja.merchantRequestId}</span>
+                    </div>
+                  )}
+                  {resultTransaction.daraja.checkoutRequestId && (
+                    <div className="flex justify-between gap-3">
+                      <span className="text-white/65">Checkout request ID</span>
+                      <span className="font-mono text-white/80 break-all text-right">{resultTransaction.daraja.checkoutRequestId}</span>
+                    </div>
+                  )}
+                  {resultTransaction.daraja.conversationId && (
+                    <div className="flex justify-between gap-3">
+                      <span className="text-white/65">Conversation ID</span>
+                      <span className="font-mono text-white/80 break-all text-right">{resultTransaction.daraja.conversationId}</span>
+                    </div>
+                  )}
+                  {resultTransaction.daraja.originatorConversationId && (
+                    <div className="flex justify-between gap-3">
+                      <span className="text-white/65">Originator ID</span>
+                      <span className="font-mono text-white/80 break-all text-right">{resultTransaction.daraja.originatorConversationId}</span>
+                    </div>
+                  )}
+                  {resultTransaction.daraja.callbackReceivedAt && (
+                    <div className="flex justify-between gap-3">
+                      <span className="text-white/65">Callback received</span>
+                      <span className="text-white/80 text-right">
+                        {formatReceiptDateTime(resultTransaction.daraja.callbackReceivedAt)}
+                      </span>
+                    </div>
+                  )}
                   {resultTransaction.refund?.status !== "none" && (
                     <div className="flex justify-between gap-3">
                       <span className="text-white/65">Refund</span>
@@ -957,9 +1039,9 @@ export function MpesaSendModePage({ mode, onBack }: { mode: SendMode; onBack: ()
                       key={`${item.to}-${idx}`}
                       className="flex items-center justify-between gap-3 text-xs"
                     >
-                      <span>{timelineLabel(item.to)}</span>
+                      <span>{mpesaTimelineLabel(item.to)}</span>
                       <span className="text-white/60">
-                        {new Date(item.at).toLocaleString()}
+                        {formatReceiptDateTime(item.at)}
                       </span>
                     </div>
                   ))}

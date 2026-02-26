@@ -7,7 +7,6 @@ import QRCode from "qrcode.react";
 import { ArrowDownLeft, ChevronRight, Copy, Download, Link as LinkIcon, Share2, UserCircle2 } from "lucide-react";
 import AuthGuard from "@/components/auth/AuthGuard";
 import { MpesaTopupPanel } from "@/components/mpesa/MpesaTopupPanel";
-import { DetailsDisclosure } from "@/components/ui/DetailsDisclosure";
 import { useAuthSession } from "@/context/AuthSessionContext";
 import {
   getUserFromBackend,
@@ -33,9 +32,17 @@ export default function AddFundsPage() {
   const tab: AddFundsTab =
     tabParam === "topup" ? "topup" : tabParam === "request" ? "request" : "choose";
 
+  const sessionAddress = useMemo(
+    () => (sessionUser?.address || "").trim().toLowerCase() || null,
+    [sessionUser?.address]
+  );
+  const onchainAddress = useMemo(
+    () => (address || sessionAddress || "").trim().toLowerCase() || null,
+    [address, sessionAddress]
+  );
   const profileAddress = useMemo(
-    () => (sessionUser?.address || address || "").trim().toLowerCase() || null,
-    [address, sessionUser?.address]
+    () => sessionAddress || onchainAddress || null,
+    [onchainAddress, sessionAddress]
   );
 
   const [backendStatus, setBackendStatus] = useState<"idle" | "loading" | "ready" | "error">(
@@ -165,8 +172,8 @@ export default function AddFundsPage() {
 
   const requestTo = useMemo(() => {
     if (receiveMethod === "dotpay") return dotpayId;
-    return profileAddress;
-  }, [dotpayId, profileAddress, receiveMethod]);
+    return onchainAddress;
+  }, [dotpayId, onchainAddress, receiveMethod]);
 
   const requestKind = receiveMethod === "dotpay" ? "dotpay" : "wallet";
 
@@ -457,7 +464,7 @@ export default function AddFundsPage() {
                 <p className="text-xs uppercase tracking-[0.24em] text-white/60">Your details</p>
                 <h2 className="mt-1 text-lg font-semibold">DotPay account</h2>
                 <p className="mt-1 text-xs text-white/65">
-                  Share your DotPay ID for transfers. Your crypto wallet address is available under details.
+                  Share your DotPay ID or wallet address for transfers and funding.
                 </p>
               </div>
               <div className="rounded-2xl border border-white/10 bg-white/5 p-3 text-cyan-100">
@@ -502,25 +509,23 @@ export default function AddFundsPage() {
                 )}
               </div>
 
-              <DetailsDisclosure label="Details">
-                <div className="space-y-2">
-                  <div className="flex items-center justify-between gap-3">
-                    <span className="text-white/70">Crypto wallet address</span>
-                    <button
-                      type="button"
-                      onClick={() => profileAddress && copyText(profileAddress, "Crypto wallet address")}
-                      disabled={!profileAddress}
-                      className="inline-flex items-center gap-2 rounded-lg border border-white/15 bg-black/20 px-2.5 py-1.5 text-xs font-semibold text-white/80 hover:bg-black/30 disabled:opacity-60"
-                    >
-                      <Copy className="h-3.5 w-3.5" />
-                      Copy
-                    </button>
+              <div className="rounded-xl border border-white/10 bg-white/5 p-4">
+                <div className="flex items-center justify-between gap-3">
+                  <div className="min-w-0">
+                    <p className="text-xs text-white/60">Wallet address</p>
+                    <p className="mt-1 break-all font-mono text-xs text-white/80">{onchainAddress || "—"}</p>
                   </div>
-                  <p className="break-all font-mono text-xs text-white/65">
-                    {profileAddress || "—"}
-                  </p>
+                  <button
+                    type="button"
+                    onClick={() => onchainAddress && copyText(onchainAddress, "Wallet address")}
+                    disabled={!onchainAddress}
+                    className="inline-flex items-center gap-2 rounded-xl border border-white/15 bg-black/20 px-3 py-2 text-xs font-semibold text-white/80 hover:bg-black/30 disabled:opacity-60"
+                  >
+                    <Copy className="h-4 w-4" />
+                    Copy
+                  </button>
                 </div>
-              </DetailsDisclosure>
+              </div>
             </div>
           </section>
         </section>
