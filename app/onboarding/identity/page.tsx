@@ -29,7 +29,7 @@ export default function DotpayIdentityOnboardingPage() {
   const [ready, setReady] = useState(false);
 
   const walletAddress = useMemo(
-    () => sessionUser?.address || address || null,
+    () => address || sessionUser?.address || null,
     [address, sessionUser?.address]
   );
 

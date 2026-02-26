@@ -22,7 +22,7 @@ export default function AuthFinishPage() {
   const mode = useMemo(() => parseMode(searchParams?.get("mode") ?? null), [searchParams]);
 
   const { address, sessionUser, isLoggedIn, hasChecked, refresh } = useAuthSession();
-  const walletAddress = sessionUser?.address || address || null;
+  const walletAddress = address || sessionUser?.address || null;
 
   const [subtitle, setSubtitle] = useState("Securing your session...");
 

@@ -41,7 +41,7 @@ export default function AddFundsPage() {
     [address, sessionAddress]
   );
   const profileAddress = useMemo(
-    () => sessionAddress || onchainAddress || null,
+    () => onchainAddress || sessionAddress || null,
     [onchainAddress, sessionAddress]
   );
 

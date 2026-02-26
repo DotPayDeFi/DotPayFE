@@ -81,7 +81,9 @@ export async function getSessionUser(): Promise<SessionUser | null> {
   const result = await thirdwebAuth.verifyJWT({ jwt: jwtCookie.value });
   if (!result.valid || !("parsedJWT" in result)) return null;
 
-  const address = result.parsedJWT.sub;
+  // Keep JWT `sub` as canonical session address. This is the address that authenticated
+  // the session and must stay consistent with backend auth token signing.
+  const address = String(result.parsedJWT.sub || "").trim().toLowerCase();
   if (!address) return null;
 
   const base: SessionUser = {
@@ -115,7 +117,7 @@ export async function getSessionUser(): Promise<SessionUser | null> {
     );
 
     const sessionUser: SessionUser = {
-      address: user.walletAddress,
+      address,
       email: user.email ?? null,
       phone: user.phone ?? null,
       userId: user.userId ?? null,
@@ -139,4 +141,3 @@ export async function getSessionUser(): Promise<SessionUser | null> {
 export async function logout() {
   cookies().delete("jwt");
 }
-

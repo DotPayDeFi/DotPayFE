@@ -328,7 +328,7 @@ export default function HomePage() {
     [address, sessionAddress]
   );
   const profileAddress = useMemo(
-    () => sessionAddress || onchainAddress || null,
+    () => onchainAddress || sessionAddress || null,
     [onchainAddress, sessionAddress]
   );
   const hasActiveConnection = Boolean(address);

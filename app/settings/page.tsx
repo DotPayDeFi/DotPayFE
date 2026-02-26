@@ -31,7 +31,7 @@ export default function SettingsPage() {
   const backendConfigured = isBackendApiConfigured();
 
   const walletAddress = useMemo(
-    () => sessionUser?.address || address || null,
+    () => address || sessionUser?.address || null,
     [address, sessionUser?.address]
   );
 

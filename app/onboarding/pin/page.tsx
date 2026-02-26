@@ -30,7 +30,7 @@ export default function PinOnboardingPage() {
   const { address, sessionUser, isLoggedIn, hasChecked } = useAuthSession();
 
   const walletAddress = useMemo(
-    () => sessionUser?.address || address || null,
+    () => address || sessionUser?.address || null,
     [address, sessionUser?.address]
   );
 

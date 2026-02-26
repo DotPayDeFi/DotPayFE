@@ -11,7 +11,6 @@ import { BusinessProvider } from "@/context/BusinessContext";
 import ClientOnly from "./ClientOnly";
 import { ReactQueryClientProvider } from "@/providers/ReactQueryClientProvider";
 import { Toaster } from "react-hot-toast";
-import PWAUpdateNotification from "@/components/pwa/PWAUpdateNotification";
 import { ThirdwebProvider } from "thirdweb/react";
 import { AuthSessionProvider } from "@/context/AuthSessionContext";
 import { AuthProvider } from "@/context/AuthContext";
@@ -196,9 +195,6 @@ export default function RootLayout({
                           <ClientOnly>
                             <AppShell>{children}</AppShell>
                           </ClientOnly>
-                          {/* Temporarily hide install modal to keep auth/onboarding flow clean */}
-                          {/* <PWAInstallPrompt /> */}
-                          <PWAUpdateNotification />
                           <Toaster />
                         </BalanceProvider>
                       </ChainProvider>

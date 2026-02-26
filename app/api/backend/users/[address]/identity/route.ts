@@ -1,5 +1,6 @@
 import { NextRequest, NextResponse } from "next/server";
 import { getSessionUser } from "@/app/(auth)/actions/login";
+import { signBackendToken } from "@/lib/backendAuthToken";
 
 function getBackendUrl() {
   return (process.env.NEXT_PUBLIC_DOTPAY_API_URL || "").trim().replace(/\/+$/, "");
@@ -28,8 +29,21 @@ export async function PATCH(request: NextRequest, { params }: { params: { addres
     return NextResponse.json({ success: false, message: "Unauthorized." }, { status: 401 });
   }
 
+  let token: string;
+  try {
+    token = signBackendToken(sessionAddress, 5 * 60);
+  } catch (err) {
+    return NextResponse.json(
+      { success: false, message: err instanceof Error ? err.message : "Token signing failed." },
+      { status: 500 }
+    );
+  }
+
   const textBody = await request.text();
-  const headers: Record<string, string> = { Accept: "application/json" };
+  const headers: Record<string, string> = {
+    Accept: "application/json",
+    Authorization: `Bearer ${token}`,
+  };
   if (textBody) headers["Content-Type"] = "application/json";
 
   try {
@@ -51,4 +65,3 @@ export async function PATCH(request: NextRequest, { params }: { params: { addres
     return NextResponse.json({ success: false, message: "Failed to reach backend users service." }, { status: 502 });
   }
 }
-

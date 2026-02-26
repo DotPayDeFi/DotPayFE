@@ -1,5 +1,6 @@
 import { NextRequest, NextResponse } from "next/server";
 import { getSessionUser } from "@/app/(auth)/actions/login";
+import { signBackendToken } from "@/lib/backendAuthToken";
 
 function getBackendUrl() {
   return (process.env.NEXT_PUBLIC_DOTPAY_API_URL || "").trim().replace(/\/+$/, "");
@@ -20,6 +21,16 @@ export async function POST(request: NextRequest) {
     return NextResponse.json({ success: false, message: "Unauthorized." }, { status: 401 });
   }
 
+  let token: string;
+  try {
+    token = signBackendToken(address, 5 * 60);
+  } catch (err) {
+    return NextResponse.json(
+      { success: false, message: err instanceof Error ? err.message : "Token signing failed." },
+      { status: 500 }
+    );
+  }
+
   // We intentionally ignore any client-provided address and sync the authenticated session user.
   const body = JSON.stringify({
     address,
@@ -33,7 +44,11 @@ export async function POST(request: NextRequest) {
   try {
     const res = await fetch(`${backendUrl}/api/users`, {
       method: "POST",
-      headers: { "Content-Type": "application/json", Accept: "application/json" },
+      headers: {
+        "Content-Type": "application/json",
+        Accept: "application/json",
+        Authorization: `Bearer ${token}`,
+      },
       body,
       cache: "no-store",
     });
@@ -49,4 +64,3 @@ export async function POST(request: NextRequest) {
     return NextResponse.json({ success: false, message: "Failed to reach backend users service." }, { status: 502 });
   }
 }
-
